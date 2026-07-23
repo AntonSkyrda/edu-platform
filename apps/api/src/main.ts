@@ -8,6 +8,8 @@ import { EnvironmentService } from './config/environment.service';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  app.enableShutdownHooks();
+
   const environmentService = app.get(EnvironmentService);
 
   app.useGlobalInterceptors(new ResponseInterceptor());

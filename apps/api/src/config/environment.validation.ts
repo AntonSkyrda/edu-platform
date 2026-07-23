@@ -1,4 +1,12 @@
-import { IsEnum, IsInt, IsNotEmpty, IsNumber, IsString, Max, Min, validateSync } from 'class-validator';
+import {
+  IsEnum,
+  IsInt,
+  IsNotEmpty,
+  IsString,
+  Max,
+  Min,
+  validateSync,
+} from 'class-validator';
 import { NodeEnvironment } from './environment.types';
 import { plainToInstance } from 'class-transformer';
 
