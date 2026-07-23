@@ -1,4 +1,4 @@
-import { IsEnum, IsInt, Max, Min, validateSync } from 'class-validator';
+import { IsEnum, IsInt, IsNotEmpty, IsNumber, IsString, Max, Min, validateSync } from 'class-validator';
 import { NodeEnvironment } from './environment.types';
 import { plainToInstance } from 'class-transformer';
 
@@ -10,6 +10,31 @@ class EnvironmentVariables {
   @Min(1)
   @Max(65535)
   APP_PORT: number;
+
+  @IsString()
+  @IsNotEmpty()
+  POSTGRES_USER: string;
+
+  @IsString()
+  @IsNotEmpty()
+  POSTGRES_PASSWORD: string;
+
+  @IsString()
+  @IsNotEmpty()
+  POSTGRES_DB: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(65535)
+  POSTGRES_PORT: number;
+
+  @IsString()
+  @IsNotEmpty()
+  POSTGRES_HOST: string;
+
+  @IsString()
+  @IsNotEmpty()
+  POSTGRES_SCHEMA: string;
 }
 
 export function validateEnvironment(

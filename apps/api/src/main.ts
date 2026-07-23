@@ -20,7 +20,7 @@ async function bootstrap() {
     }),
   );
 
-  await app.listen(environmentService.getAppPort() ?? 3000);
+  await app.listen(environmentService.AppPort);
 }
 
 bootstrap();
