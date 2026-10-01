@@ -1,10 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import nodemailer, { type Transporter } from 'nodemailer';
 
 import { EnvironmentService } from '../../config/environment.service';
+import type { EmailContent } from './interfaces/email-content.interface';
 
 @Injectable()
-export class EmailService {
+export class EmailService implements OnModuleInit {
   private readonly logger = new Logger(EmailService.name);
   private readonly transporter: Transporter;
 
@@ -18,8 +19,17 @@ export class EmailService {
         pass: this.environmentService.smtpPassword,
       },
     });
+  }
 
-    void this.verifyConnection();
+  async onModuleInit(): Promise<void> {
+    await this.verifyConnection();
+  }
+
+  async send(message: EmailContent & { to: string }): Promise<void> {
+    await this.transporter.sendMail({
+      from: this.environmentService.smtpFrom,
+      ...message,
+    });
   }
 
   private async verifyConnection(): Promise<void> {
@@ -27,8 +37,10 @@ export class EmailService {
       await this.transporter.verify();
 
       this.logger.log('SMTP connection established');
-    } catch (error) {
-      this.logger.error('Failed to connect to SMTP', error);
+    } catch {
+      this.logger.error(
+        'SMTP connection verification failed; check transport configuration',
+      );
     }
   }
 }

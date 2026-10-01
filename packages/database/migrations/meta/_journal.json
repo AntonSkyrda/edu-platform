@@ -15,6 +15,20 @@
       "when": 1790887660134,
       "tag": "0001_unique-user-email-case-insensitive",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790889033080,
+      "tag": "0002_auth-invitations-and-sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790895842206,
+      "tag": "0003_invitation-delivery",
+      "breakpoints": true
     }
   ]
 }

@@ -78,5 +78,11 @@ export default tseslint.config(
     },
   },
 
+  {
+    files: ['apps/api/test/**/*.cjs'],
+    languageOptions: { globals: globals.node },
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
+  },
+
   eslintConfigPrettier,
 );

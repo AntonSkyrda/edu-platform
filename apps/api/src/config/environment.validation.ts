@@ -1,83 +1,136 @@
-import { plainToInstance } from 'class-transformer';
+import { plainToInstance, Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsEnum,
   IsInt,
   IsNotEmpty,
   IsString,
+  IsUrl,
   Max,
   Min,
+  MinLength,
   validateSync,
 } from 'class-validator';
 
 import { NodeEnvironment } from './environment.types';
 
 class EnvironmentVariables {
+  @IsInt()
+  @Min(1)
+  @Max(3600)
+  INVITATION_DELIVERY_POLL_SECONDS: number = 30;
+
+  @IsString()
+  @MinLength(32)
+  INVITATION_TOKEN_SECRET!: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(86400)
+  ACCESS_TOKEN_TTL_SECONDS: number = 900;
+
+  @IsInt()
+  @Min(1)
+  @Max(31536000)
+  SESSION_TTL_SECONDS: number = 2592000;
+
+  @IsInt()
+  @Min(1)
+  @Max(2592000)
+  INVITATION_TTL_SECONDS: number = 172800;
+
+  @IsString()
+  @IsNotEmpty()
+  JWT_ISSUER: string = 'edu-platform';
+
+  @IsString()
+  @IsNotEmpty()
+  JWT_AUDIENCE: string = 'edu-platform-api';
+
+  @IsString()
+  @MinLength(32)
+  ACCESS_JWT_SECRET!: string;
+
+  @IsUrl({
+    require_tld: false,
+    protocols: ['http', 'https'],
+    require_protocol: true,
+  })
+  FRONTEND_ORIGIN!: string;
+
   @IsEnum(NodeEnvironment)
-  NODE_ENV: NodeEnvironment;
+  NODE_ENV!: NodeEnvironment;
 
   @IsInt()
   @Min(1)
   @Max(65535)
-  APP_PORT: number;
+  APP_PORT!: number;
 
   @IsString()
   @IsNotEmpty()
-  POSTGRES_USER: string;
+  POSTGRES_USER!: string;
 
   @IsString()
   @IsNotEmpty()
-  POSTGRES_PASSWORD: string;
+  POSTGRES_PASSWORD!: string;
 
   @IsString()
   @IsNotEmpty()
-  POSTGRES_DB: string;
+  POSTGRES_DB!: string;
 
   @IsInt()
   @Min(1)
   @Max(65535)
-  POSTGRES_PORT: number;
+  POSTGRES_PORT!: number;
 
   @IsString()
   @IsNotEmpty()
-  POSTGRES_HOST: string;
+  POSTGRES_HOST!: string;
 
   @IsString()
   @IsNotEmpty()
-  POSTGRES_SCHEMA: string;
+  POSTGRES_SCHEMA!: string;
 
   @IsString()
   @IsNotEmpty()
-  REDIS_HOST: string;
+  REDIS_HOST!: string;
 
   @IsInt()
   @Min(1)
   @Max(65535)
-  REDIS_PORT: number;
+  REDIS_PORT!: number;
 
   @IsString()
   @IsNotEmpty()
-  SMTP_HOST: string;
+  SMTP_HOST!: string;
 
   @IsInt()
   @Min(1)
   @Max(65535)
-  SMTP_PORT: number;
+  SMTP_PORT!: number;
 
+  @Transform(({ obj, key }: { obj: Record<string, unknown>; key: string }) => {
+    const value = obj[key];
+    return value === 'true' || value === true
+      ? true
+      : value === 'false' || value === false
+        ? false
+        : value;
+  })
   @IsBoolean()
-  SMTP_SECURE: boolean;
+  SMTP_SECURE!: boolean;
 
   @IsString()
   @IsNotEmpty()
-  SMTP_USER: string;
+  SMTP_USER!: string;
 
   @IsString()
   @IsNotEmpty()
-  SMTP_PASSWORD: string;
+  SMTP_PASSWORD!: string;
 
   @IsString()
   @IsNotEmpty()
-  SMTP_FROM: string;
+  SMTP_FROM!: string;
 }
 
 export function validateEnvironment(

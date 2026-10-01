@@ -3,4 +3,11 @@ export {
   type DatabaseConnectionOptions,
   createDatabaseUrl,
 } from './connection';
-export { sql } from 'drizzle-orm';
+export { and, eq, gt, isNull, sql } from 'drizzle-orm';
+export { BaseRepository } from './repositories/base.repository';
+export type {
+  Transaction,
+  DatabaseExecutor,
+  FindManyOptions,
+  UpdateData,
+} from './repositories/repository.types';

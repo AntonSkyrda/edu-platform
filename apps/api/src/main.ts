@@ -5,6 +5,7 @@ import { AppModule } from './app.module';
 import { AllExceptionFilter } from './common/filters/all-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { EnvironmentService } from './config/environment.service';
+import { setupSwagger } from './config/swagger.config';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -12,6 +13,11 @@ async function bootstrap() {
   app.enableShutdownHooks();
 
   const environmentService = app.get(EnvironmentService);
+
+  app.enableCors({
+    origin: environmentService.frontendOrigin,
+    credentials: true,
+  });
 
   app.useGlobalInterceptors(new ResponseInterceptor());
   app.useGlobalFilters(new AllExceptionFilter());
@@ -22,6 +28,8 @@ async function bootstrap() {
       transform: true,
     }),
   );
+
+  if (!environmentService.isProduction) setupSwagger(app);
 
   await app.listen(environmentService.AppPort);
 }

@@ -18,22 +18,30 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:auth": "node --test test/auth.integration.cjs",
+    "test:types": "tsc -p test/tsconfig.types.json",
+    "admin:create": "node dist/scripts/create-admin.js"
   },
   "dependencies": {
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.0.1",
+    "@nestjs/jwt": "^11.0.2",
     "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/swagger": "^12.0.2",
+    "@nestjs/throttler": "^6.7.1",
     "@project/contracts": "workspace:*",
+    "@project/database": "workspace:*",
+    "argon2": "^0.45.1",
     "bullmq": "^5.80.10",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
+    "cookie": "^2.0.1",
     "nodemailer": "^9.0.3",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1",
-    "@project/database": "workspace:*"
+    "rxjs": "^7.8.1"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",
