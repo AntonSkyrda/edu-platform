@@ -5,8 +5,8 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import type { Response } from 'express';
 import type { ApiResponse } from '@project/contracts';
+import type { Response } from 'express';
 
 @Catch()
 export class AllExceptionFilter implements ExceptionFilter {

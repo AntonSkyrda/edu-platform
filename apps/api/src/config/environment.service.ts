@@ -1,6 +1,8 @@
-import { ConfigService } from '@nestjs/config';
-import { NodeEnvironment } from './environment.types';
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { createDatabaseUrl } from '@project/database';
+
+import { NodeEnvironment } from './environment.types';
 
 @Injectable()
 export class EnvironmentService {
@@ -34,6 +36,38 @@ export class EnvironmentService {
     return this.configService.getOrThrow<string>('POSTGRES_SCHEMA');
   }
 
+  get redisHost(): string {
+    return this.configService.getOrThrow<string>('REDIS_HOST');
+  }
+
+  get redisPort(): number {
+    return this.configService.getOrThrow<number>('REDIS_PORT');
+  }
+
+  get smtpHost(): string {
+    return this.configService.getOrThrow<string>('SMTP_HOST');
+  }
+
+  get smtpPort(): number {
+    return this.configService.getOrThrow<number>('SMTP_PORT');
+  }
+
+  get smtpSecure(): boolean {
+    return this.configService.getOrThrow<boolean>('SMTP_SECURE');
+  }
+
+  get smtpUser(): string {
+    return this.configService.getOrThrow<string>('SMTP_USER');
+  }
+
+  get smtpPassword(): string {
+    return this.configService.getOrThrow<string>('SMTP_PASSWORD');
+  }
+
+  get smtpFrom(): string {
+    return this.configService.getOrThrow<string>('SMTP_FROM');
+  }
+
   get nodeEnvironment(): NodeEnvironment {
     return this.configService.getOrThrow<NodeEnvironment>('NODE_ENV');
   }
@@ -51,15 +85,13 @@ export class EnvironmentService {
   }
 
   get databaseUrl(): string {
-    const username = encodeURIComponent(this.postgresUser);
-    const password = encodeURIComponent(this.postgresPassword);
-    const database = encodeURIComponent(this.postgresDatabase);
-    const schema = encodeURIComponent(this.postgresSchema);
-
-    return [
-      `postgresql://${username}:${password}`,
-      `@${this.postgresHost}:${this.postgresPort}`,
-      `/${database}?schema=${schema}`,
-    ].join('');
+    return createDatabaseUrl({
+      host: this.postgresHost,
+      port: this.postgresPort,
+      user: this.postgresUser,
+      password: this.postgresPassword,
+      database: this.postgresDatabase,
+      schema: this.postgresSchema,
+    });
   }
 }

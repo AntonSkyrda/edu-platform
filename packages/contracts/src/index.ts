@@ -1,1 +1,1 @@
-export * from './api-response';
+export type { ApiResponse } from './api-response.js';

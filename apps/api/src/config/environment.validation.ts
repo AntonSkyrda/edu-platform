@@ -1,4 +1,6 @@
+import { plainToInstance } from 'class-transformer';
 import {
+  IsBoolean,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -7,8 +9,8 @@ import {
   Min,
   validateSync,
 } from 'class-validator';
+
 import { NodeEnvironment } from './environment.types';
-import { plainToInstance } from 'class-transformer';
 
 class EnvironmentVariables {
   @IsEnum(NodeEnvironment)
@@ -43,6 +45,39 @@ class EnvironmentVariables {
   @IsString()
   @IsNotEmpty()
   POSTGRES_SCHEMA: string;
+
+  @IsString()
+  @IsNotEmpty()
+  REDIS_HOST: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(65535)
+  REDIS_PORT: number;
+
+  @IsString()
+  @IsNotEmpty()
+  SMTP_HOST: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(65535)
+  SMTP_PORT: number;
+
+  @IsBoolean()
+  SMTP_SECURE: boolean;
+
+  @IsString()
+  @IsNotEmpty()
+  SMTP_USER: string;
+
+  @IsString()
+  @IsNotEmpty()
+  SMTP_PASSWORD: string;
+
+  @IsString()
+  @IsNotEmpty()
+  SMTP_FROM: string;
 }
 
 export function validateEnvironment(

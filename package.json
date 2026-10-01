@@ -7,7 +7,12 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier . --write",
-    "format:check": "prettier . --check"
+    "format:check": "prettier . --check",
+    "build": "pnpm -r --if-present run build",
+    "dev:api": "pnpm --filter @project/contracts --filter @project/database build && pnpm --filter api start:dev",
+    "db:generate": "pnpm --filter @project/database db:generate",
+    "db:migrate": "pnpm --filter @project/database db:migrate",
+    "db:studio": "pnpm --filter @project/database db:studio"
   },
   "devEngines": {
     "packageManager": {
@@ -20,8 +25,10 @@
     "@eslint/js": "^9.39.5",
     "eslint": "^9.39.5",
     "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-perfectionist": "^5.10.0",
     "globals": "^17.7.0",
     "prettier": "^3.9.5",
+    "typescript": "^5.9.3",
     "typescript-eslint": "^8.64.0"
   }
 }

@@ -1,10 +1,11 @@
 import { Module } from '@nestjs/common';
-import { PrismaService } from './prisma.service';
+
 import { EnvironmentModule } from '../config/environment.module';
+import { DatabaseService } from './database.service';
 
 @Module({
   imports: [EnvironmentModule],
-  providers: [PrismaService],
-  exports: [PrismaService],
+  providers: [DatabaseService],
+  exports: [DatabaseService],
 })
-export class PrismaModule {}
+export class DatabaseModule {}
