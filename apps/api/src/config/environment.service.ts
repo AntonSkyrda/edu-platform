@@ -8,6 +8,88 @@ import { NodeEnvironment } from './environment.types';
 export class EnvironmentService {
   constructor(private readonly configService: ConfigService) {}
 
+  get passwordResetTokenSecret(): string {
+    return this.configService.getOrThrow<string>('PASSWORD_RESET_TOKEN_SECRET');
+  }
+  get passwordResetTtlMs(): number {
+    return (
+      this.configService.getOrThrow<number>('PASSWORD_RESET_TTL_SECONDS') * 1000
+    );
+  }
+  get passwordResetCooldownMs(): number {
+    return (
+      this.configService.getOrThrow<number>('PASSWORD_RESET_COOLDOWN_SECONDS') *
+      1000
+    );
+  }
+  get passwordResetDeliveryPollMs(): number {
+    return (
+      this.configService.getOrThrow<number>(
+        'PASSWORD_RESET_DELIVERY_POLL_SECONDS',
+      ) * 1000
+    );
+  }
+  get passwordResetResponseMinMs(): number {
+    return this.configService.getOrThrow<number>(
+      'PASSWORD_RESET_RESPONSE_MIN_MS',
+    );
+  }
+
+  get logLevel(): string {
+    return this.configService.getOrThrow<string>('LOG_LEVEL');
+  }
+
+  get invitationDeliveryPollMs(): number {
+    return (
+      this.configService.getOrThrow<number>(
+        'INVITATION_DELIVERY_POLL_SECONDS',
+      ) * 1000
+    );
+  }
+
+  get invitationTokenSecret(): string {
+    return this.configService.getOrThrow<string>('INVITATION_TOKEN_SECRET');
+  }
+
+  get accessTokenTtlSeconds(): number {
+    return this.configService.getOrThrow<number>('ACCESS_TOKEN_TTL_SECONDS');
+  }
+  get sessionTtlMs(): number {
+    return this.configService.getOrThrow<number>('SESSION_TTL_SECONDS') * 1000;
+  }
+  get invitationTtlMs(): number {
+    return (
+      this.configService.getOrThrow<number>('INVITATION_TTL_SECONDS') * 1000
+    );
+  }
+  get jwtIssuer(): string {
+    return this.configService.getOrThrow<string>('JWT_ISSUER');
+  }
+  get jwtAudience(): string {
+    return this.configService.getOrThrow<string>('JWT_AUDIENCE');
+  }
+
+  get accessJwtSecret(): string {
+    return this.configService.getOrThrow<string>('ACCESS_JWT_SECRET');
+  }
+
+  get frontendOrigin(): string {
+    return new URL(this.configService.getOrThrow<string>('FRONTEND_ORIGIN'))
+      .origin;
+  }
+
+  get trustedRequestOrigins(): string[] {
+    return [
+      this.frontendOrigin,
+      ...(this.isDevelopment
+        ? [
+            `http://localhost:${this.AppPort}`,
+            `http://127.0.0.1:${this.AppPort}`,
+          ]
+        : []),
+    ];
+  }
+
   get AppPort(): number {
     return this.configService.getOrThrow<number>('APP_PORT');
   }

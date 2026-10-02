@@ -27,7 +27,8 @@
   },
   "dependencies": {
     "drizzle-orm": "^0.45.3",
-    "pg": "^8.23.1"
+    "pg": "^8.23.1",
+    "@project/contracts": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",

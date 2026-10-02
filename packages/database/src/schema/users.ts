@@ -1,14 +1,10 @@
+import { USER_ROLES } from '@project/contracts';
 import { sql } from 'drizzle-orm';
 import { pgEnum, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
 
 import { baseColumns } from './base.columns';
 
-export const userRoleEnum = pgEnum('user_role', [
-  'ADMIN',
-  'MANAGER',
-  'TEACHER',
-  'STUDENT',
-]);
+export const userRoleEnum = pgEnum('user_role', USER_ROLES);
 
 export const userStatusEnum = pgEnum('user_status', [
   'INVITED',
