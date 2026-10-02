@@ -18,6 +18,7 @@ import { toAuthUser } from './mappers/auth-user.mapper';
 import { AccessTokenService } from './services/access-token.service';
 import { InvitationDeliveryService } from './services/invitation-delivery.service';
 import { InvitationsService } from './services/invitations.service';
+import { PasswordResetsService } from './services/password-resets.service';
 import { SessionsService } from './services/sessions.service';
 
 @Injectable()
@@ -32,6 +33,7 @@ export class AuthService {
     private readonly users: UsersService,
     private readonly invitations: InvitationsService,
     private readonly sessions: SessionsService,
+    private readonly passwordResets: PasswordResetsService,
   ) {
     this.dummyHash = passwords.hash(randomBytes(32).toString('hex'));
   }
@@ -205,6 +207,7 @@ export class AuthService {
       );
       await this.sessions.revokeForUser(user.id, tx);
       await this.invitations.revokeUnusedForUser(user.id, tx);
+      await this.passwordResets.revokeUnusedForUser(user.id, tx);
     });
     return {
       message: blocked

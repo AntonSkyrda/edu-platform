@@ -1,27 +1,23 @@
 import { randomUUID } from 'node:crypto';
 
-import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
 
 import { EnvironmentService } from '../../config/environment.service';
 import { EmailService } from '../../infrastructure/email/email.service';
 import { invitationTemplate } from '../../infrastructure/email/templates/invitation.template';
 import { loggingContext } from '../../infrastructure/logger/logging-context';
-import { QueueName } from '../../infrastructure/queue/queue.constants';
 import type { InvitationEmailJob } from '../interfaces/invitation-email-job.interface';
 import { InvitationsService } from '../services/invitations.service';
 
-@Processor(QueueName.EMAIL)
-export class InvitationEmailProcessor extends WorkerHost {
+@Injectable()
+export class InvitationEmailProcessor {
   private readonly logger = new Logger(InvitationEmailProcessor.name);
   constructor(
     private readonly invitations: InvitationsService,
     private readonly email: EmailService,
     private readonly environment: EnvironmentService,
-  ) {
-    super();
-  }
+  ) {}
   process(job: Job<InvitationEmailJob>): Promise<void> {
     return loggingContext.run(
       {

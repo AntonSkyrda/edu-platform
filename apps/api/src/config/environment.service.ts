@@ -8,6 +8,33 @@ import { NodeEnvironment } from './environment.types';
 export class EnvironmentService {
   constructor(private readonly configService: ConfigService) {}
 
+  get passwordResetTokenSecret(): string {
+    return this.configService.getOrThrow<string>('PASSWORD_RESET_TOKEN_SECRET');
+  }
+  get passwordResetTtlMs(): number {
+    return (
+      this.configService.getOrThrow<number>('PASSWORD_RESET_TTL_SECONDS') * 1000
+    );
+  }
+  get passwordResetCooldownMs(): number {
+    return (
+      this.configService.getOrThrow<number>('PASSWORD_RESET_COOLDOWN_SECONDS') *
+      1000
+    );
+  }
+  get passwordResetDeliveryPollMs(): number {
+    return (
+      this.configService.getOrThrow<number>(
+        'PASSWORD_RESET_DELIVERY_POLL_SECONDS',
+      ) * 1000
+    );
+  }
+  get passwordResetResponseMinMs(): number {
+    return this.configService.getOrThrow<number>(
+      'PASSWORD_RESET_RESPONSE_MIN_MS',
+    );
+  }
+
   get logLevel(): string {
     return this.configService.getOrThrow<string>('LOG_LEVEL');
   }

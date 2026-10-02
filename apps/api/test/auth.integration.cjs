@@ -20,17 +20,27 @@ const {
   userInvitations,
   userSessions,
 } = require('@project/database/schema');
+const { passwordResets } = require('@project/database/schema');
 const { hash, argon2id } = require('argon2');
 const request = require('supertest');
 
 const { AuthModule } = require('../dist/auth/auth.module');
 const { AuthService } = require('../dist/auth/auth.service');
 const {
+  AuthEmailProcessor,
+} = require('../dist/auth/processors/auth-email.processor');
+const {
   InvitationEmailProcessor,
 } = require('../dist/auth/processors/invitation-email.processor');
 const {
+  PasswordResetEmailProcessor,
+} = require('../dist/auth/processors/password-reset-email.processor');
+const {
   InvitationsRepository,
 } = require('../dist/auth/repositories/invitations.repository');
+const {
+  PasswordResetsRepository,
+} = require('../dist/auth/repositories/password-resets.repository');
 const {
   SessionsRepository,
 } = require('../dist/auth/repositories/sessions.repository');
@@ -43,6 +53,15 @@ const {
 const {
   InvitationsService,
 } = require('../dist/auth/services/invitations.service');
+const {
+  PasswordRecoveryService,
+} = require('../dist/auth/services/password-recovery.service');
+const {
+  PasswordResetDeliveryService,
+} = require('../dist/auth/services/password-reset-delivery.service');
+const {
+  PasswordResetsService,
+} = require('../dist/auth/services/password-resets.service');
 const { SessionsService } = require('../dist/auth/services/sessions.service');
 const {
   AllExceptionFilter,
@@ -94,6 +113,11 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
     },
   };
   const environment = {
+    passwordResetTokenSecret: randomBytes(32).toString('hex'),
+    passwordResetTtlMs: 1800000,
+    passwordResetCooldownMs: 60000,
+    passwordResetDeliveryPollMs: 30000,
+    passwordResetResponseMinMs: 0,
     accessJwtSecret: randomBytes(32).toString('hex'),
     frontendOrigin: 'http://localhost:3001',
     trustedRequestOrigins: ['http://localhost:3001', 'http://localhost:3000'],
@@ -122,11 +146,13 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
       new UsersRepository({ db }),
       new InvitationsRepository({ db }),
       new SessionsRepository({ db }),
+      new PasswordResetsRepository({ db }),
     ];
     services = [
       new UsersService(repositories[0]),
       new InvitationsService(repositories[1], environment),
       new SessionsService(repositories[2], environment),
+      new PasswordResetsService(repositories[3], environment),
     ];
     const delivery = new InvitationDeliveryService(
       services[1],
@@ -823,6 +849,330 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
       },
     );
 
+    const recovery = new PasswordRecoveryService(
+      { db },
+      services[0],
+      services[3],
+      services[2],
+      new PasswordService(),
+      environment,
+    );
+    const recoveryUser = await services[0].create({
+      email: 'recovery@example.test',
+      firstName: '<Recovery>',
+      lastName: 'Test',
+      role: 'STUDENT',
+      status: 'ACTIVE',
+      passwordHash,
+    });
+    const resetRows = () =>
+      db
+        .select()
+        .from(passwordResets)
+        .where(eq(passwordResets.userId, recoveryUser.id));
+    const resetToken = (row) => services[3].deliveryToken(row.id);
+    const nextReset = async () => {
+      await db
+        .update(passwordResets)
+        .set({ createdAt: new Date(Date.now() - 120000) })
+        .where(eq(passwordResets.userId, recoveryUser.id));
+      await recovery.request(recoveryUser.email);
+      return (await resetRows()).find((row) => !row.usedAt && !row.revokedAt);
+    };
+    const newPassword = 'new recovery password';
+    await t.test(
+      'recovery hides eligibility and serializes concurrent requests during cooldown',
+      async () => {
+        const expected = await recovery.request('missing@example.test');
+        for (const state of ['INVITED', 'BLOCKED']) {
+          const user = await services[0].create({
+            email: `${state.toLowerCase()}-recovery@example.test`,
+            firstName: 'X',
+            lastName: 'Y',
+            role: 'STUDENT',
+            status: state,
+            passwordHash,
+          });
+          assert.deepEqual(await recovery.request(user.email), expected);
+          assert.equal(
+            (
+              await db
+                .select()
+                .from(passwordResets)
+                .where(eq(passwordResets.userId, user.id))
+            ).length,
+            0,
+          );
+        }
+        for (const result of await Promise.all([
+          recovery.request(recoveryUser.email),
+          recovery.request(recoveryUser.email),
+        ]))
+          assert.deepEqual(result, expected);
+        const rows = await resetRows();
+        assert.equal(rows.length, 1);
+        assert.equal(
+          rows[0].tokenHash,
+          createHash('sha256').update(resetToken(rows[0])).digest('hex'),
+        );
+        assert.equal(JSON.stringify(rows).includes(resetToken(rows[0])), false);
+        assert.equal(
+          (await services[0].getByIdOrThrow(recoveryUser.id)).passwordHash,
+          passwordHash,
+        );
+        assert.deepEqual(await recovery.request(admin.email), expected);
+        assert.equal(
+          (
+            await db
+              .select()
+              .from(passwordResets)
+              .where(eq(passwordResets.userId, admin.id))
+          ).length,
+          1,
+        );
+      },
+    );
+    await t.test(
+      'recovery survives queue outage, sends escaped fragment links and routes email jobs',
+      async () => {
+        const queued = [];
+        const failed = new PasswordResetDeliveryService(
+          services[3],
+          {
+            enqueue: async () => {
+              throw Error('offline');
+            },
+          },
+          environment,
+        );
+        await failed.recover();
+        assert.equal((await resetRows())[0].deliveryStatus, 'pending');
+        const dispatcher = new PasswordResetDeliveryService(
+          services[3],
+          {
+            enqueue: async (name, type, data, options) => {
+              assert.equal(name, 'email');
+              assert.equal(type, 'password-reset');
+              assert.equal(options.jobId, `${type}-${data.resetId}`);
+              assert.deepEqual(Object.keys(data).sort(), [
+                'requestId',
+                'resetId',
+              ]);
+              queued.push({
+                name: type,
+                data,
+                opts: { attempts: 5 },
+                attemptsMade: 0,
+              });
+            },
+          },
+          environment,
+        );
+        await dispatcher.recover();
+        const sent = [];
+        const processor = new PasswordResetEmailProcessor(
+          services[3],
+          { send: async (email) => sent.push(email) },
+          environment,
+        );
+        const router = new AuthEmailProcessor(
+          { process: async () => sent.push('invitation') },
+          processor,
+        );
+        const row = (await resetRows())[0];
+        await router.process(
+          queued.find((item) => item.data.resetId === row.id),
+        );
+        assert.equal(sent.length, 1);
+        assert.match(
+          sent[0].text,
+          new RegExp(`/reset-password#token=${resetToken(row)}`),
+        );
+        assert.match(sent[0].html, /&lt;Recovery&gt;/);
+        assert.equal((await resetRows())[0].deliveryStatus, 'sent');
+        await router.process(
+          queued.find((item) => item.data.resetId === row.id),
+        );
+        assert.equal(sent.length, 1);
+        await router.process({ name: 'invitation' });
+        assert.equal(sent.at(-1), 'invitation');
+        await assert.rejects(
+          async () => router.process({ name: 'unknown' }),
+          /Unsupported/,
+        );
+      },
+    );
+    await t.test(
+      'new recovery link invalidates old links and expiry is enforced',
+      async () => {
+        const first = (await resetRows())[0];
+        const second = await nextReset();
+        await assert.rejects(
+          recovery.reset(resetToken(first), newPassword),
+          status(401),
+        );
+        await repositories[3].update(second.id, {
+          expiresAt: new Date(Date.now() - 1000),
+        });
+        await assert.rejects(
+          recovery.reset(resetToken(second), newPassword),
+          status(401),
+        );
+        assert.equal(await services[3].prepareDelivery(second.id), null);
+        assert.equal(
+          (await repositories[3].findById(second.id)).deliveryStatus,
+          'skipped',
+        );
+      },
+    );
+    await t.test(
+      'concurrent password reset succeeds once, revokes every session and schedules confirmation',
+      async () => {
+        const row = await nextReset();
+        const sessions = await Promise.all([
+          service.login(recoveryUser.email, password),
+          service.login(recoveryUser.email, password),
+        ]);
+        const results = await Promise.allSettled([
+          recovery.reset(resetToken(row), newPassword),
+          recovery.reset(resetToken(row), newPassword),
+        ]);
+        assert.equal(
+          results.filter((result) => result.status === 'fulfilled').length,
+          1,
+        );
+        assert.equal(
+          results
+            .find((result) => result.status === 'rejected')
+            .reason.getStatus(),
+          401,
+        );
+        for (const tokens of sessions) {
+          await assert.rejects(
+            service.authenticate(tokens.accessToken),
+            status(401),
+          );
+          await assert.rejects(
+            service.refresh(tokens.refreshToken),
+            status(401),
+          );
+        }
+        await assert.rejects(
+          service.login(recoveryUser.email, password),
+          status(401),
+        );
+        assert.equal(
+          (await service.login(recoveryUser.email, newPassword)).user.id,
+          recoveryUser.id,
+        );
+        const stored = await repositories[3].findById(row.id);
+        assert(stored.usedAt);
+        assert.equal(stored.notificationStatus, 'pending');
+        const jobs = [];
+        const dispatcher = new PasswordResetDeliveryService(
+          services[3],
+          {
+            enqueue: async (_, name, data) =>
+              jobs.push({ name, data, opts: { attempts: 5 }, attemptsMade: 0 }),
+          },
+          environment,
+        );
+        await dispatcher.recover();
+        const confirmation = jobs.find(
+          (job) =>
+            job.name === 'password-changed' && job.data.resetId === row.id,
+        );
+        assert(confirmation);
+        const emails = [];
+        await new PasswordResetEmailProcessor(
+          services[3],
+          { send: async (mail) => emails.push(mail) },
+          environment,
+        ).process(confirmation);
+        assert.equal(emails.length, 1);
+        assert.equal(JSON.stringify(emails).includes(newPassword), false);
+        assert.equal(
+          (await repositories[3].findById(row.id)).notificationStatus,
+          'sent',
+        );
+      },
+    );
+    await t.test(
+      'reset rolls back token, password and notification on session revocation failure',
+      async () => {
+        const row = await nextReset();
+        const failing = new PasswordRecoveryService(
+          { db },
+          services[0],
+          services[3],
+          {
+            revokeForUser: async () => {
+              throw Error('injected failure');
+            },
+          },
+          new PasswordService(),
+          environment,
+        );
+        await assert.rejects(
+          failing.reset(resetToken(row), password),
+          /injected failure/,
+        );
+        const stored = await repositories[3].findById(row.id);
+        assert.equal(stored.usedAt, null);
+        assert.equal(stored.notificationStatus, null);
+        assert.equal(
+          (await service.login(recoveryUser.email, newPassword)).user.id,
+          recoveryUser.id,
+        );
+        await service.setBlocked(actor, recoveryUser.id, true);
+        await assert.rejects(
+          recovery.reset(resetToken(row), password),
+          status(401),
+        );
+        await service.setBlocked(actor, recoveryUser.id, false);
+        await assert.rejects(
+          recovery.reset(resetToken(row), password),
+          status(401),
+        );
+      },
+    );
+    await t.test(
+      'SMTP failures retain safe diagnostics and exhaust recovery retries',
+      async () => {
+        const row = await nextReset();
+        const processor = new PasswordResetEmailProcessor(
+          services[3],
+          {
+            send: async () => {
+              throw Object.assign(Error('secret SMTP payload'), {
+                code: 'ECONNECTION',
+              });
+            },
+          },
+          environment,
+        );
+        const job = {
+          name: 'password-reset',
+          data: { resetId: row.id },
+          opts: { attempts: 5 },
+          attemptsMade: 0,
+        };
+        await assert.rejects(processor.process(job), /^Error: ECONNECTION$/);
+        assert.equal(
+          (await repositories[3].findById(row.id)).deliveryStatus,
+          'pending',
+        );
+        await assert.rejects(
+          processor.process({ ...job, attemptsMade: 4 }),
+          /^Error: ECONNECTION$/,
+        );
+        const stored = await repositories[3].findById(row.id);
+        assert.equal(stored.deliveryStatus, 'failed');
+        assert.equal(stored.deliveryError, 'ECONNECTION');
+        assert.equal(stored.deliveryAttempts, 2);
+      },
+    );
+
     await t.test(
       'HTTP guards, validation, cookies, origin checks and throttling',
       async () => {
@@ -842,6 +1192,12 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
           .useValue(delivery)
           .overrideProvider(InvitationEmailProcessor)
           .useValue({})
+          .overrideProvider(PasswordResetEmailProcessor)
+          .useValue({})
+          .overrideProvider(AuthEmailProcessor)
+          .useValue({})
+          .overrideProvider(PasswordResetDeliveryService)
+          .useValue({})
           .overrideProvider(DatabaseService)
           .useValue({ db })
           .overrideProvider(EnvironmentService)
@@ -859,6 +1215,85 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
         app.useGlobalFilters(new AllExceptionFilter());
         await app.init();
         const http = request(app.getHttpServer());
+        for (const route of ['/auth/forgot-password', '/auth/reset-password']) {
+          await http
+            .post(route)
+            .set('Origin', 'https://evil.example')
+            .send({})
+            .expect(403);
+        }
+        await http
+          .post('/auth/forgot-password')
+          .send({ email: 'invalid' })
+          .expect(400);
+        let generic;
+        for (const email of [
+          recoveryUser.email.toUpperCase(),
+          'missing@example.test',
+          'invited-recovery@example.test',
+          'blocked-recovery@example.test',
+        ]) {
+          const response = await http
+            .post('/auth/forgot-password')
+            .send({ email })
+            .expect(200);
+          assert.equal(response.headers['cache-control'], 'no-store');
+          assert.equal(response.headers['set-cookie'], undefined);
+          if (generic) assert.deepEqual(response.body, generic);
+          generic = response.body;
+        }
+        await http
+          .post('/auth/forgot-password')
+          .send({ email: recoveryUser.email })
+          .expect(429);
+        await http
+          .post('/auth/reset-password')
+          .send({ token: 'a'.repeat(64), password: 'short' })
+          .expect(400);
+        await http
+          .post('/auth/reset-password')
+          .send({ token: 'invalid', password })
+          .expect(400);
+        const httpReset = await nextReset();
+        const resetResponse = await http
+          .post('/auth/reset-password')
+          .send({ token: resetToken(httpReset), password: newPassword })
+          .expect(200);
+        assert.equal(resetResponse.headers['cache-control'], 'no-store');
+        assert.equal(resetResponse.headers['set-cookie'].length, 2);
+        for (const cookie of resetResponse.headers['set-cookie']) {
+          assert.match(cookie, /HttpOnly/);
+          assert.match(cookie, /Expires=Thu, 01 Jan 1970/);
+        }
+        assert.deepEqual(Object.keys(resetResponse.body.detail), ['message']);
+        await http
+          .post('/auth/reset-password')
+          .send({ token: resetToken(httpReset), password })
+          .expect(401);
+        await http
+          .post('/auth/reset-password')
+          .send({ token: 'a'.repeat(64), password })
+          .expect(401);
+        await http
+          .post('/auth/reset-password')
+          .send({ token: 'a'.repeat(64), password })
+          .expect(429);
+        const { SwaggerModule, DocumentBuilder } = require('@nestjs/swagger');
+        const document = SwaggerModule.createDocument(
+          app,
+          new DocumentBuilder().build(),
+        );
+        for (const route of ['/auth/forgot-password', '/auth/reset-password']) {
+          assert(document.paths[route].post.requestBody);
+          assert(document.paths[route].post.responses['200']);
+          assert.equal(document.paths[route].post.security, undefined);
+        }
+        assert.equal(
+          document.components.schemas.ResetPasswordDto.properties.password
+            .maxLength,
+          64,
+        );
+
         await http.get('/auth/me').expect(401);
         const login = await http
           .post('/auth/login')

@@ -13,12 +13,18 @@ import { QueueModule } from '../infrastructure/queue/queue.module';
 import { UsersModule } from '../users/users.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { AuthEmailProcessor } from './processors/auth-email.processor';
 import { InvitationEmailProcessor } from './processors/invitation-email.processor';
+import { PasswordResetEmailProcessor } from './processors/password-reset-email.processor';
 import { InvitationsRepository } from './repositories/invitations.repository';
+import { PasswordResetsRepository } from './repositories/password-resets.repository';
 import { SessionsRepository } from './repositories/sessions.repository';
 import { AccessTokenService } from './services/access-token.service';
 import { InvitationDeliveryService } from './services/invitation-delivery.service';
 import { InvitationsService } from './services/invitations.service';
+import { PasswordRecoveryService } from './services/password-recovery.service';
+import { PasswordResetDeliveryService } from './services/password-reset-delivery.service';
+import { PasswordResetsService } from './services/password-resets.service';
 import { SessionsService } from './services/sessions.service';
 
 @Module({
@@ -35,6 +41,12 @@ import { SessionsService } from './services/sessions.service';
   controllers: [AuthController],
   providers: [
     AuthService,
+    PasswordResetsRepository,
+    PasswordResetsService,
+    PasswordRecoveryService,
+    PasswordResetDeliveryService,
+    PasswordResetEmailProcessor,
+    AuthEmailProcessor,
     AccessTokenService,
     InvitationDeliveryService,
     InvitationsRepository,

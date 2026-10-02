@@ -36,8 +36,11 @@ import {
   AuthResponseDto,
   AuthUserDto,
 } from './dto/auth-response.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { InviteUserDto } from './dto/invite-user.dto';
 import { LoginDto } from './dto/login.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { PasswordRecoveryService } from './services/password-recovery.service';
 
 @ApiTags('Authentication')
 @ApiErrorEnvelope(400, 'Invalid request data')
@@ -51,6 +54,7 @@ export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly environment: EnvironmentService,
+    private readonly recovery: PasswordRecoveryService,
   ) {}
 
   private cookieOptions(path: string) {
@@ -183,6 +187,42 @@ export class AuthController {
     const token =
       parseCookie(request.headers.cookie ?? '')[REFRESH_COOKIE] ?? '';
     const result = await this.auth.logout(token);
+    response.clearCookie(ACCESS_COOKIE, this.cookieOptions('/'));
+    response.clearCookie(REFRESH_COOKIE, this.cookieOptions('/auth'));
+    return result;
+  }
+
+  @Public()
+  @Post('forgot-password')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiOperation({
+    summary: 'Request a password reset',
+    description:
+      'Always returns the same message for eligible, unknown, invited and blocked accounts. Email delivery is asynchronous. Rate limit: 5/minute per IP; per-account cooldown defaults to 60 seconds.',
+  })
+  @ApiEnvelope(AuthMessageDto)
+  forgotPassword(@Body() data: ForgotPasswordDto) {
+    return this.recovery.request(data.email);
+  }
+
+  @Public()
+  @Post('reset-password')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiOperation({
+    summary: 'Set a new password with a recovery token',
+    description:
+      'Consumes the single-use token, revokes all sessions and other recovery links, clears cookies and queues a confirmation email. Does not sign in automatically.',
+  })
+  @ApiEnvelope(AuthMessageDto)
+  async resetPassword(
+    @Body() data: ResetPasswordDto,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const result = await this.recovery.reset(data.token, data.password);
     response.clearCookie(ACCESS_COOKIE, this.cookieOptions('/'));
     response.clearCookie(REFRESH_COOKIE, this.cookieOptions('/auth'));
     return result;

@@ -1,7 +1,7 @@
 # Edu Platform API
 
 NestJS backend for an invitation-only platform. PostgreSQL/Drizzle owns users,
-invitations and sessions; BullMQ/Redis delivers invitation emails.
+invitations, password resets and sessions; BullMQ/Redis delivers auth emails.
 
 ## Local setup
 
@@ -32,6 +32,8 @@ manager permissions are outside this implementation.
 | POST   | /auth/invitations                | Active ADMIN   | email, firstName, lastName, role |
 | POST   | /auth/invitations/:userId/resend | Active ADMIN   | none                             |
 | POST   | /auth/invitations/accept         | Public         | token, password                  |
+| POST   | /auth/forgot-password            | Public         | email                            |
+| POST   | /auth/reset-password             | Public         | token, password                  |
 | POST   | /auth/login                      | Public         | email, password                  |
 | POST   | /auth/refresh                    | Refresh cookie | none                             |
 | POST   | /auth/logout                     | Refresh cookie | none                             |
@@ -64,7 +66,7 @@ invited through the API.
 
 All routes are protected by default unless marked `@Public()`. Every protected
 request checks the current database session and user status. Blocking revokes all
-sessions and unused invitations; unblocking never restores them. A previously
+sessions, unused invitations and password reset links; unblocking never restores them. A previously
 invited user returns to INVITED and needs a new invitation. Existing admins cannot
 be blocked through these endpoints.
 
@@ -76,8 +78,7 @@ remain in PostgreSQL. Queue payloads contain only invitation IDs.
 
 The auth controller applies per-IP rate limits. The initial in-memory limiter is
 for a single API instance; use shared throttling storage before scaling replicas.
-Password reset, frontend screens and granular manager
-permissions are separate follow-up work.
+Frontend screens and granular manager permissions are separate follow-up work.
 
 ## Verification
 
@@ -90,7 +91,9 @@ Auth integration tests use an isolated, randomly named schema in the local
 PostgreSQL database, apply all migrations, and remove only that test schema on
 completion. They intercept email delivery and do not send real emails. Tests cover
 invitation reuse/expiry/resend, concurrent acceptance and refresh, login, blocking
-races, logout, cookies, authorization, input validation and throttling.
+races, logout, cookies, authorization, input validation and throttling. Recovery tests
+cover eligibility, cooldown, token expiry/reuse, concurrent resets, transaction rollback,
+session revocation, durable delivery, confirmation emails and public HTTP endpoints.
 
 ## Repository layer
 
@@ -105,12 +108,12 @@ It exposes general `create`, `update`, `findByEmail` and `getByIdOrThrow` operat
 Authentication policies (invitation, activation, blocking) belong to AuthService.
 
 `AuthModule` owns `services/`, `repositories/`, `processors/`, `dto/`,
-`interfaces/` and `constants/`. InvitationsService and SessionsService each use
+`interfaces/` and `constants/`. InvitationsService, PasswordResetsService and SessionsService each use
 only their own repository. The invitation processor calls InvitationsService;
 EmailModule provides general email delivery. Infrastructure QueueModule owns
 BullMQ configuration, queue registration and retry defaults, and exports a generic
-QueueService. AuthService submits invitation jobs through QueueService; the
-invitation processor stays in AuthModule. Infrastructure has no reverse dependency
+QueueService. Auth delivery services submit jobs through QueueService. AuthEmailProcessor routes
+the shared email queue to invitation and password recovery handlers in AuthModule. Infrastructure has no reverse dependency
 on AuthModule.
 
 `getByIdOrThrow(id)` reads without locking. To lock a row, use
@@ -193,10 +196,53 @@ collectors can consume stdout later. Run on Node.js 22.12+ (nestjs-pino requirem
 Each HTTP request receives a server-generated X-Request-Id response header. Logs
 include requestId, service, environment, method, path, response status and duration.
 Queue jobs carry the originating requestId; recovered jobs get a new correlation ID.
-Workers add jobId and invitationId. Exceptions with status 500+ produce a diagnostic
+Workers add jobId; delivery events include invitationId or resetId. Exceptions with status 500+ produce a diagnostic
 event in addition to the HTTP completion log.
 
 HTTP bodies, headers and query strings are omitted. Sensitive structured fields
 are redacted. Error serialization retains only type, safe code and stack frames;
 raw messages and causes are omitted because they can contain tokens or SQL values.
 Do not interpolate secrets into log messages or custom event fields.
+
+### Password recovery
+
+`POST /auth/forgot-password` accepts `{ "email": "user@example.com" }` and returns
+HTTP 200 with the same message for unknown, invited, blocked and active accounts.
+Only ACTIVE users with a password receive a link, including administrators.
+Each account has a 60-second cooldown. Both recovery endpoints allow 5 requests
+per IP per minute. Requests use a minimum 200 ms response delay; this reduces
+ordinary timing differences but does not guarantee constant timing under load.
+No password or session changes happen when requesting a link.
+
+The email contains `FRONTEND_ORIGIN/reset-password#token=...`. The token expires
+after 30 minutes and is single-use. Requesting another link after the cooldown
+revokes older unused links. A future frontend must read and remove the fragment
+from history, collect an 8–64 character password and send `{ "token": "...",
+"password": "..." }` to `POST /auth/reset-password`. Opening the email link alone
+does not change the password. Until the frontend exists, copy the token from the
+link into Swagger or Postman; the link's page itself is not implemented.
+
+Resetting hashes the password with Argon2id, consumes the token and revokes all
+sessions and other reset links in one transaction. Both HttpOnly cookies are
+cleared; the user must log in again. A confirmation email is queued durably in
+the same transaction and never contains the password. Blocking also revokes reset
+links; unblocking does not restore them.
+
+Set a dedicated random `PASSWORD_RESET_TOKEN_SECRET` of at least 32 characters.
+Keep it stable across restarts. Only token hashes are stored in PostgreSQL;
+queue jobs contain a reset ID and correlation ID. Pending email delivery resumes
+at startup and every 30 seconds. Five SMTP attempts are allowed; failures store
+safe diagnostic codes. After final failure, request a new link after the cooldown.
+SMTP acceptance is not an inbox-delivery guarantee; a crash after acceptance can
+cause duplicate email. Invalid or expired pending links are skipped.
+
+Config defaults: `PASSWORD_RESET_TTL_SECONDS=1800`,
+`PASSWORD_RESET_COOLDOWN_SECONDS=60`, `PASSWORD_RESET_DELIVERY_POLL_SECONDS=30`,
+`PASSWORD_RESET_RESPONSE_MIN_MS=200`. Migration `0004_password_recovery` creates
+only the password recovery table and its indexes.
+
+Postman folder **04 — Password recovery** runs separately against an ACTIVE user.
+Set `newPassword`, run the request for a link, pause for the email (allow 30 seconds
+for dispatch), then paste its token into `resetToken`. The folder checks old sessions,
+old passwords and token reuse. After completing it, update `userPassword` to the
+new password before rerunning the original flow. On 429, wait 60 seconds.

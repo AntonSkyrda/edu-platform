@@ -16,6 +16,30 @@ import {
 import { NodeEnvironment } from './environment.types';
 
 class EnvironmentVariables {
+  @IsString()
+  @MinLength(32)
+  PASSWORD_RESET_TOKEN_SECRET!: string;
+
+  @IsInt()
+  @Min(60)
+  @Max(86400)
+  PASSWORD_RESET_TTL_SECONDS: number = 1800;
+
+  @IsInt()
+  @Min(1)
+  @Max(3600)
+  PASSWORD_RESET_COOLDOWN_SECONDS: number = 60;
+
+  @IsInt()
+  @Min(1)
+  @Max(3600)
+  PASSWORD_RESET_DELIVERY_POLL_SECONDS: number = 30;
+
+  @IsInt()
+  @Min(0)
+  @Max(5000)
+  PASSWORD_RESET_RESPONSE_MIN_MS: number = 200;
+
   @IsIn(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
   LOG_LEVEL: string = 'info';
 
