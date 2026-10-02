@@ -14,7 +14,8 @@
     "db:migrate": "pnpm --filter @project/database db:migrate",
     "db:studio": "pnpm --filter @project/database db:studio",
     "test:auth": "pnpm build && pnpm --filter api test:auth",
-    "admin:create": "pnpm build && pnpm --filter api admin:create"
+    "admin:create": "pnpm build && pnpm --filter api admin:create",
+    "test:logger": "pnpm build && pnpm --filter api test:logger"
   },
   "devEngines": {
     "packageManager": {

@@ -14,7 +14,6 @@ export class InvitationsService {
     private readonly environment: EnvironmentService,
   ) {}
 
-  // The caller locks the owning user first, preserving user -> invitation lock order.
   async issue(userId: string, transaction: Transaction) {
     await this.repository.revokeUnusedForUser(userId, transaction);
     const id = randomUUID();

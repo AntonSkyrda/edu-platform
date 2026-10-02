@@ -83,7 +83,6 @@ export abstract class BaseRepository<TTable extends RepositoryTable> {
     data: UpdateData<TTable>,
     transaction?: Transaction,
   ): Promise<InferSelectModel<TTable> | null> {
-    // Also protect managed columns at runtime when callers bypass TypeScript.
     const values = Object.fromEntries(
       Object.entries(data).filter(
         ([key, value]) =>

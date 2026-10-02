@@ -8,6 +8,10 @@ import { NodeEnvironment } from './environment.types';
 export class EnvironmentService {
   constructor(private readonly configService: ConfigService) {}
 
+  get logLevel(): string {
+    return this.configService.getOrThrow<string>('LOG_LEVEL');
+  }
+
   get invitationDeliveryPollMs(): number {
     return (
       this.configService.getOrThrow<number>(

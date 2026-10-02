@@ -21,9 +21,9 @@ Set a random `ACCESS_JWT_SECRET` of at least 32 characters and `FRONTEND_ORIGIN`
 variables. Production requires HTTPS; auth cookies are Secure in production.
 The frontend and API should be hosted on the same site for SameSite=Strict cookies.
 
-There is no public registration or API for creating ADMIN accounts. Provisioning
-the initial admin with a separate script is a future step. Manager permissions
-are also outside this implementation.
+There is no public registration or API for creating ADMIN accounts. Create the
+initial administrator with `pnpm admin:create` as documented below. Granular
+manager permissions are outside this implementation.
 
 ## Authentication
 
@@ -182,3 +182,21 @@ requires the administrator to resend; a Redis outage is recovered automatically.
 Logout uses the refresh cookie, requires no valid access JWT, clears both cookies
 and succeeds for missing or already revoked tokens. CSRF checks still apply.
 Password limits are shared from contracts, and PasswordService owns Argon2 settings.
+
+### Structured logging
+
+Pino is wired through `infrastructure/logger`; options live in `config/logger.config.ts`.
+Set LOG_LEVEL (default info). Development uses pino-pretty; production/test write
+JSON to stdout. No external logging service is required. Container/platform log
+collectors can consume stdout later. Run on Node.js 22.12+ (nestjs-pino requirement).
+
+Each HTTP request receives a server-generated X-Request-Id response header. Logs
+include requestId, service, environment, method, path, response status and duration.
+Queue jobs carry the originating requestId; recovered jobs get a new correlation ID.
+Workers add jobId and invitationId. Exceptions with status 500+ produce a diagnostic
+event in addition to the HTTP completion log.
+
+HTTP bodies, headers and query strings are omitted. Sensitive structured fields
+are redacted. Error serialization retains only type, safe code and stack frames;
+raw messages and causes are omitted because they can contain tokens or SQL values.
+Do not interpolate secrets into log messages or custom event fields.

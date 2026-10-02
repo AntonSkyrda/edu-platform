@@ -36,11 +36,9 @@ export class EmailService implements OnModuleInit {
     try {
       await this.transporter.verify();
 
-      this.logger.log('SMTP connection established');
+      this.logger.log({ event: 'email.transport_ready' });
     } catch {
-      this.logger.error(
-        'SMTP connection verification failed; check transport configuration',
-      );
+      this.logger.error({ event: 'email.transport_unavailable' });
     }
   }
 }

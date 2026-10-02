@@ -4,7 +4,6 @@ import type { User } from '@project/database/types';
 import type { UsersRepository } from '../src/users/users.repository';
 import type { UsersService } from '../src/users/users.service';
 
-// Compiled with --noEmit; never executed against a database.
 export function checkRepositoryTypes(repository: UsersRepository) {
   const result: Promise<User | null> = repository.findById('id');
   void result;

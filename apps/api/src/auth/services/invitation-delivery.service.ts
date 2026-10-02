@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import {
   Injectable,
   Logger,
@@ -6,6 +8,7 @@ import {
 } from '@nestjs/common';
 
 import { EnvironmentService } from '../../config/environment.service';
+import { loggingContext } from '../../infrastructure/logger/logging-context';
 import { QueueName } from '../../infrastructure/queue/queue.constants';
 import { QueueService } from '../../infrastructure/queue/queue.service';
 import { InvitationsService } from './invitations.service';
@@ -28,13 +31,18 @@ export class InvitationDeliveryService
       await this.queue.enqueue(
         QueueName.EMAIL,
         'invitation',
-        { invitationId },
+        {
+          invitationId,
+          requestId: loggingContext.getStore()?.requestId ?? randomUUID(),
+        },
         { jobId: invitationId },
       );
     } catch {
-      this.logger.warn(
-        `Invitation ${invitationId}: enqueue failed; durable delivery remains pending`,
-      );
+      this.logger.warn({
+        event: 'invitation.enqueue_failed',
+        invitationId,
+        deliveryStatus: 'pending',
+      });
     }
   }
   async recover(): Promise<void> {
@@ -51,7 +59,7 @@ export class InvitationDeliveryService
       for (const invitation of await this.invitations.pendingDeliveries())
         await this.enqueue(invitation.id);
     } catch {
-      this.logger.error('Invitation delivery recovery failed');
+      this.logger.error({ event: 'invitation.recovery_failed' });
     }
   }
   onApplicationBootstrap(): void {

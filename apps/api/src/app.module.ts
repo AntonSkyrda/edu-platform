@@ -6,10 +6,12 @@ import { AuthModule } from './auth/auth.module';
 import { EnvironmentModule } from './config/environment.module';
 import { DatabaseModule } from './database/database.module';
 import { EmailModule } from './infrastructure/email/email.module';
+import { LoggerModule } from './infrastructure/logger/logger.module';
 import { QueueModule } from './infrastructure/queue/queue.module';
 
 @Module({
   imports: [
+    LoggerModule,
     AuthModule,
     EnvironmentModule,
     DatabaseModule,

@@ -4,12 +4,14 @@ import {
   ExceptionFilter,
   HttpException,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import type { ApiResponse } from '@project/contracts';
 import type { Response } from 'express';
 
 @Catch()
 export class AllExceptionFilter implements ExceptionFilter {
+  private readonly logger = new Logger(AllExceptionFilter.name);
   catch(exception: unknown, host: ArgumentsHost): void {
     const context = host.switchToHttp();
     const response = context.getResponse<Response>();
@@ -18,6 +20,14 @@ export class AllExceptionFilter implements ExceptionFilter {
       exception instanceof HttpException
         ? exception.getStatus()
         : HttpStatus.INTERNAL_SERVER_ERROR;
+
+    if (statusCode >= 500) {
+      this.logger.error({
+        event: 'http.unhandled_error',
+        statusCode,
+        err: exception,
+      });
+    }
 
     const detail =
       exception instanceof HttpException

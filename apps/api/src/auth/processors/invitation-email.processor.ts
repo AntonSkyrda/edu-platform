@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
@@ -5,6 +7,7 @@ import type { Job } from 'bullmq';
 import { EnvironmentService } from '../../config/environment.service';
 import { EmailService } from '../../infrastructure/email/email.service';
 import { invitationTemplate } from '../../infrastructure/email/templates/invitation.template';
+import { loggingContext } from '../../infrastructure/logger/logging-context';
 import { QueueName } from '../../infrastructure/queue/queue.constants';
 import type { InvitationEmailJob } from '../interfaces/invitation-email-job.interface';
 import { InvitationsService } from '../services/invitations.service';
@@ -19,7 +22,18 @@ export class InvitationEmailProcessor extends WorkerHost {
   ) {
     super();
   }
-  async process(job: Job<InvitationEmailJob>): Promise<void> {
+  process(job: Job<InvitationEmailJob>): Promise<void> {
+    return loggingContext.run(
+      {
+        requestId: job.data.requestId ?? randomUUID(),
+        jobId: job.id,
+        invitationId: job.data.invitationId,
+      },
+      () => this.processInvitation(job),
+    );
+  }
+
+  private async processInvitation(job: Job<InvitationEmailJob>): Promise<void> {
     if (job.name !== 'invitation') throw new Error('Unsupported email job');
     const delivery = await this.invitations.prepareDelivery(
       job.data.invitationId,
@@ -39,7 +53,11 @@ export class InvitationEmailProcessor extends WorkerHost {
       });
       await this.invitations.recordDeliveryAttempt(job.data.invitationId);
       await this.invitations.recordDelivery(job.data.invitationId, 'sent');
-      this.logger.log(`Invitation ${job.data.invitationId}: accepted by SMTP`);
+      this.logger.log({
+        event: 'invitation.smtp_accepted',
+        invitationId: job.data.invitationId,
+        jobId: job.id,
+      });
     } catch (error: unknown) {
       const code =
         typeof error === 'object' &&
@@ -56,9 +74,13 @@ export class InvitationEmailProcessor extends WorkerHost {
           'failed',
           code,
         );
-        this.logger.error(
-          `Invitation ${job.data.invitationId}: delivery failed (${code})`,
-        );
+        this.logger.error({
+          event: 'invitation.delivery_failed',
+          invitationId: job.data.invitationId,
+          jobId: job.id,
+          errorCode: code,
+          attempt: job.attemptsMade + 1,
+        });
       }
       throw new Error(code);
     }

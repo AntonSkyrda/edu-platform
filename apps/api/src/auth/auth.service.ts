@@ -22,7 +22,6 @@ import { SessionsService } from './services/sessions.service';
 
 @Injectable()
 export class AuthService {
-  // Perform password verification even for unknown emails.
   private readonly dummyHash: Promise<string>;
 
   constructor(

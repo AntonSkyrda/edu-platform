@@ -20,14 +20,14 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     });
     this.db = this.connection.db;
     this.connection.pool.on('error', (error: Error) => {
-      this.logger.error('Unexpected PostgreSQL pool error', error.stack);
+      this.logger.error({ event: 'database.pool_error', err: error });
     });
   }
 
   async onModuleInit(): Promise<void> {
     try {
       await this.db.execute(sql`SELECT 1`);
-      this.logger.log('PostgreSQL connection established');
+      this.logger.log({ event: 'database.connected' });
     } catch (error) {
       await this.connection.pool.end();
       throw error;

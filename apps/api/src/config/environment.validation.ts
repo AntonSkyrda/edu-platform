@@ -2,6 +2,7 @@ import { plainToInstance, Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsString,
@@ -15,6 +16,9 @@ import {
 import { NodeEnvironment } from './environment.types';
 
 class EnvironmentVariables {
+  @IsIn(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
+  LOG_LEVEL: string = 'info';
+
   @IsInt()
   @Min(1)
   @Max(3600)
