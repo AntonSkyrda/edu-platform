@@ -1,6 +1,7 @@
 import eslint from '@eslint/js';
 import eslintConfigPrettier from 'eslint-config-prettier/flat';
 import perfectionist from 'eslint-plugin-perfectionist';
+import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
@@ -11,6 +12,7 @@ export default tseslint.config(
       '**/dist/**',
       '**/.next/**',
       '**/coverage/**',
+      '**/routeTree.gen.ts',
     ],
   },
 
@@ -82,6 +84,23 @@ export default tseslint.config(
     files: ['apps/api/test/**/*.cjs'],
     languageOptions: { globals: globals.node },
     rules: { '@typescript-eslint/no-require-imports': 'off' },
+  },
+
+  {
+    files: ['apps/admin/src/**/*.{ts,tsx}'],
+
+    languageOptions: {
+      globals: globals.browser,
+    },
+
+    plugins: {
+      'react-hooks': reactHooks,
+    },
+
+    rules: {
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
+    },
   },
 
   eslintConfigPrettier,
