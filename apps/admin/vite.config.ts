@@ -7,6 +7,7 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   envDir: fileURLToPath(new URL('../../', import.meta.url)),
+  server: { port: 3001, strictPort: true },
   plugins: [
     tanstackRouter({
       target: 'react',

@@ -1,9 +1,12 @@
-const apiUrl = import.meta.env.VITE_API_URL;
+import { z } from 'zod';
 
-if (typeof apiUrl !== 'string' || apiUrl.trim() === '') {
-  throw new Error('VITE_API_URL is required');
-}
+const schema = z.object({
+  apiUrl: z
+    .url()
+    .refine(
+      (value) => ['http:', 'https:'].includes(new URL(value).protocol),
+      'API URL must use HTTP or HTTPS',
+    ),
+});
 
-export const env = {
-  apiUrl: apiUrl.trim(),
-};
+export const env = schema.parse({ apiUrl: import.meta.env.VITE_API_URL });

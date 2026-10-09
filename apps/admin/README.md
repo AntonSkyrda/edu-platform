@@ -1,75 +1,28 @@
-# React + TypeScript + Vite
+# Edu Platform Admin
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React/Vite SPA for administrators and managers.
 
-Currently, two official plugins are available:
+## Development
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Run `pnpm install` from the repository root. Set `VITE_API_URL=http://localhost:3000`
+in the root `.env`, then run `pnpm dev:admin`. The admin uses port 3001.
+The API must allow that exact origin with credentials. VITE variables are public
+build-time settings; never prefix backend secrets with VITE_.
 
-## React Compiler
+## Architecture
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- `app`: composition, providers, routes and router context.
+- `features`: business functionality, API functions, queries, forms and pages.
+- `shared`: generic UI, HTTP transport, error normalization and configuration.
+- `@project/contracts`: shared request/response types and public constants.
 
-## Expanding the ESLint configuration
+Features expose their public API through index.ts. Shared code never imports app
+or features. Database code must never enter the browser bundle. Auth tokens remain
+in HttpOnly cookies. QueryClient is shared by the React provider and route loaders.
+Generated routeTree.gen.ts is committed and excluded from lint/formatting.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Checks
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
-```
-
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
-```
+`pnpm --filter admin build` runs TypeScript and the production build.
+`pnpm exec eslint apps/admin/src apps/admin/vite.config.ts` uses the root config.
+For production hosting, rewrite non-asset SPA routes to index.html.

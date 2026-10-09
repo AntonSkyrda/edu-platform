@@ -15,7 +15,8 @@
     "db:studio": "pnpm --filter @project/database db:studio",
     "test:auth": "pnpm build && pnpm --filter api test:auth",
     "admin:create": "pnpm build && pnpm --filter api admin:create",
-    "test:logger": "pnpm build && pnpm --filter api test:logger"
+    "test:logger": "pnpm build && pnpm --filter api test:logger",
+    "dev:admin": "pnpm --filter @project/contracts build && pnpm --filter admin dev"
   },
   "devEngines": {
     "packageManager": {
