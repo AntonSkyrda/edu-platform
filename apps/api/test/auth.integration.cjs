@@ -533,6 +533,7 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
 
     await t.test('managers cannot invite, resend or block', async () => {
       const member = await service.authenticate(memberTokens.accessToken);
+      await assert.rejects(service.listUsers(member, 20, 0), status(403));
       await assert.rejects(
         service.invite(member, {
           email: 'other@example.test',
@@ -1323,6 +1324,33 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
         assert.match(cookie, /Path=\/auth/);
         assert.equal(login.headers['cache-control'], 'no-store');
         await http.get('/auth/me').set('Cookie', cookieHeader).expect(200);
+        await http.get('/auth/users').expect(401);
+        const listed = await http
+          .get('/auth/users?limit=1&offset=0')
+          .set('Cookie', cookieHeader)
+          .expect(200);
+        assert.equal(listed.body.detail.items.length, 1);
+        assert.equal(typeof listed.body.detail.hasMore, 'boolean');
+        assert.deepEqual(Object.keys(listed.body.detail.items[0]).sort(), [
+          'email',
+          'firstName',
+          'id',
+          'lastName',
+          'role',
+          'status',
+        ]);
+        for (const query of [
+          'limit=0',
+          'limit=51',
+          'offset=-1',
+          'offset=1.5',
+        ]) {
+          await http
+            .get(`/auth/users?${query}`)
+            .set('Cookie', cookieHeader)
+            .expect(400);
+        }
+
         await http
           .get('/auth/me')
           .set(

@@ -1,3 +1,4 @@
+import '@/app/auth-runtime';
 import './index.css';
 
 import { StrictMode } from 'react';
