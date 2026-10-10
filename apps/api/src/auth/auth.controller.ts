@@ -7,6 +7,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   Req,
   Res,
   UseGuards,
@@ -38,6 +39,7 @@ import {
 } from './dto/auth-response.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { InviteUserDto } from './dto/invite-user.dto';
+import { ListUsersDto, UsersPageDto } from './dto/list-users.dto';
 import { LoginDto } from './dto/login.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { PasswordRecoveryService } from './services/password-recovery.service';
@@ -226,6 +228,15 @@ export class AuthController {
     response.clearCookie(ACCESS_COOKIE, this.cookieOptions('/'));
     response.clearCookie(REFRESH_COOKIE, this.cookieOptions('/auth'));
     return result;
+  }
+
+  @ApiCookieAuth('accessCookie')
+  @ApiOperation({ summary: 'List users (ADMIN only)' })
+  @ApiEnvelope(UsersPageDto)
+  @Get('users')
+  @Header('Cache-Control', 'no-store')
+  listUsers(@Req() request: AuthRequest, @Query() query: ListUsersDto) {
+    return this.auth.listUsers(request.auth, query.limit, query.offset);
   }
 
   @ApiCookieAuth('accessCookie')

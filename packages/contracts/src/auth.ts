@@ -38,3 +38,8 @@ export interface ResetPasswordRequest {
   token: string;
   password: string;
 }
+
+export interface UsersPage {
+  items: AuthUser[];
+  hasMore: boolean;
+}

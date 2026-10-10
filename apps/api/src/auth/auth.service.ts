@@ -57,6 +57,17 @@ export class AuthService {
     return toAuthUser(user);
   }
 
+  async listUsers(actor: AuthContext, limit: number, offset: number) {
+    return this.database.db.transaction(async (tx) => {
+      await this.checkAdmin(tx, actor);
+      const users = await this.users.findMany({ limit: limit + 1, offset }, tx);
+      return {
+        items: users.slice(0, limit).map(toAuthUser),
+        hasMore: users.length > limit,
+      };
+    });
+  }
+
   async invite(actor: AuthContext, data: InviteUserRequest) {
     const result = await this.database.db.transaction(async (tx) => {
       await this.checkAdmin(tx, actor);

@@ -3,7 +3,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { Transaction, UpdateData } from '@project/database';
+import type {
+  FindManyOptions,
+  Transaction,
+  UpdateData,
+} from '@project/database';
 import type { users } from '@project/database/schema';
 import type { NewUser, User } from '@project/database/types';
 
@@ -13,6 +17,10 @@ import { UsersRepository } from './users.repository';
 @Injectable()
 export class UsersService {
   constructor(private readonly repository: UsersRepository) {}
+
+  findMany(options: FindManyOptions, transaction?: Transaction) {
+    return this.repository.findMany(options, transaction);
+  }
 
   findByEmail(email: string, transaction?: Transaction): Promise<User | null> {
     return this.repository.findByEmail(email, transaction);
