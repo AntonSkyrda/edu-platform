@@ -8,8 +8,26 @@ import { QueueName } from './queue.constants';
 export class QueueService {
   private readonly queues: Record<QueueName, Queue>;
 
-  constructor(@InjectQueue(QueueName.EMAIL) emailQueue: Queue) {
-    this.queues = { [QueueName.EMAIL]: emailQueue };
+  constructor(
+    @InjectQueue(QueueName.EMAIL) emailQueue: Queue,
+    @InjectQueue(QueueName.MEDIA) mediaQueue: Queue,
+  ) {
+    this.queues = {
+      [QueueName.EMAIL]: emailQueue,
+      [QueueName.MEDIA]: mediaQueue,
+    };
+  }
+
+  async schedule(
+    queueName: QueueName,
+    name: string,
+    every: number,
+  ): Promise<void> {
+    await this.queues[queueName].upsertJobScheduler(
+      name,
+      { every },
+      { name, data: {} },
+    );
   }
 
   async enqueue<T extends object>(
