@@ -10,6 +10,8 @@ export const API_ENDPOINTS = {
   },
   users: {
     list: '/auth/users',
+    permissions: (id: string) =>
+      `/auth/users/${encodeURIComponent(id)}/permissions`,
     invite: '/auth/invitations',
     resend: (id: string) =>
       `/auth/invitations/${encodeURIComponent(id)}/resend`,

@@ -7,6 +7,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -29,6 +30,10 @@ import {
 import { Public } from '../common/decorators/public.decorator';
 import type { AuthRequest } from '../common/interfaces/auth-request.interface';
 import { EnvironmentService } from '../config/environment.service';
+import {
+  PermissionsResponseDto,
+  SetPermissionsDto,
+} from '../permissions/dto/permissions.dto';
 import { AuthService } from './auth.service';
 import { ACCESS_COOKIE, REFRESH_COOKIE } from './constants/auth.constants';
 import { AcceptInvitationDto } from './dto/accept-invitation.dto';
@@ -37,6 +42,7 @@ import {
   AuthResponseDto,
   AuthUserDto,
 } from './dto/auth-response.dto';
+import { CurrentUserDto } from './dto/current-user.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { InviteUserDto } from './dto/invite-user.dto';
 import { ListUsersDto, UsersPageDto } from './dto/list-users.dto';
@@ -59,6 +65,31 @@ export class AuthController {
     private readonly recovery: PasswordRecoveryService,
   ) {}
 
+  @Get('users/:userId/permissions')
+  @ApiCookieAuth('accessCookie')
+  @ApiOperation({ summary: 'Get assigned permissions (ADMIN only)' })
+  @ApiEnvelope(PermissionsResponseDto)
+  @Header('Cache-Control', 'no-store')
+  getPermissions(
+    @Req() request: AuthRequest,
+    @Param('userId', new ParseUUIDPipe()) userId: string,
+  ) {
+    return this.auth.getPermissions(request.auth, userId);
+  }
+  @Put('users/:userId/permissions')
+  @ApiCookieAuth('accessCookie')
+  @ApiOperation({
+    summary:
+      'Replace manager permissions; empty array revokes all (ADMIN only)',
+  })
+  @ApiEnvelope(PermissionsResponseDto)
+  setPermissions(
+    @Req() request: AuthRequest,
+    @Param('userId', new ParseUUIDPipe()) userId: string,
+    @Body() data: SetPermissionsDto,
+  ) {
+    return this.auth.setPermissions(request.auth, userId, data.permissions);
+  }
   private cookieOptions(path: string) {
     return {
       httpOnly: true,
@@ -240,12 +271,12 @@ export class AuthController {
   }
 
   @ApiCookieAuth('accessCookie')
-  @ApiOperation({ summary: 'Get current user' })
-  @ApiEnvelope(AuthUserDto)
+  @ApiOperation({ summary: 'Get current user and effective permissions' })
+  @ApiEnvelope(CurrentUserDto)
   @Get('me')
   @Header('Cache-Control', 'no-store')
   me(@Req() request: AuthRequest) {
-    return request.auth.user;
+    return this.auth.currentUser(request.auth);
   }
 
   @ApiCookieAuth('accessCookie')

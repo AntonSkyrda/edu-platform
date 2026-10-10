@@ -6,12 +6,13 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import type { InviteUserRequest } from '@project/contracts';
+import type { InviteUserRequest, Permission } from '@project/contracts';
 import type { Transaction } from '@project/database';
 import type { User } from '@project/database/types';
 
 import { PasswordService } from '../common/security/password.service';
 import { DatabaseService } from '../database/database.service';
+import { PermissionsService } from '../permissions/permissions.service';
 import { UsersService } from '../users/users.service';
 import type { AuthContext } from './interfaces/auth-context.interface';
 import { toAuthUser } from './mappers/auth-user.mapper';
@@ -34,6 +35,7 @@ export class AuthService {
     private readonly invitations: InvitationsService,
     private readonly sessions: SessionsService,
     private readonly passwordResets: PasswordResetsService,
+    private readonly permissions: PermissionsService,
   ) {
     this.dummyHash = passwords.hash(randomBytes(32).toString('hex'));
   }
@@ -57,6 +59,28 @@ export class AuthService {
     return toAuthUser(user);
   }
 
+  async currentUser(actor: AuthContext) {
+    return {
+      ...actor.user,
+      permissions: await this.permissions.effective(actor.user),
+    };
+  }
+  async getPermissions(actor: AuthContext, userId: string) {
+    return this.database.db.transaction(async (tx) => {
+      await this.checkAdmin(tx, actor);
+      return this.permissions.getAssigned(userId, tx);
+    });
+  }
+  async setPermissions(
+    actor: AuthContext,
+    userId: string,
+    permissions: Permission[],
+  ) {
+    return this.database.db.transaction(async (tx) => {
+      await this.checkAdmin(tx, actor);
+      return this.permissions.replace(userId, permissions, tx);
+    });
+  }
   async listUsers(actor: AuthContext, limit: number, offset: number) {
     return this.database.db.transaction(async (tx) => {
       await this.checkAdmin(tx, actor);

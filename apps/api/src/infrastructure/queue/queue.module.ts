@@ -20,6 +20,15 @@ import { QueueService } from './queue.service';
       }),
     }),
     BullModule.registerQueue({
+      name: QueueName.MEDIA,
+      defaultJobOptions: {
+        attempts: 5,
+        backoff: { type: 'exponential', delay: 1000 },
+        removeOnComplete: true,
+        removeOnFail: 100,
+      },
+    }),
+    BullModule.registerQueue({
       name: QueueName.EMAIL,
       defaultJobOptions: {
         attempts: 5,

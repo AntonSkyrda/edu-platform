@@ -10,6 +10,7 @@ import { EnvironmentModule } from '../config/environment.module';
 import { DatabaseModule } from '../database/database.module';
 import { EmailModule } from '../infrastructure/email/email.module';
 import { QueueModule } from '../infrastructure/queue/queue.module';
+import { PermissionsModule } from '../permissions/permissions.module';
 import { UsersModule } from '../users/users.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
@@ -32,6 +33,7 @@ import { SessionsService } from './services/sessions.service';
     EnvironmentModule,
     SecurityModule,
     UsersModule,
+    PermissionsModule,
     DatabaseModule,
     EmailModule,
     QueueModule,

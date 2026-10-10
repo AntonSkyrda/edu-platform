@@ -5,6 +5,15 @@ const { createRequire } = require('node:module');
 const { resolve } = require('node:path');
 const { test } = require('node:test');
 
+const { PERMISSIONS } = require('@project/contracts');
+
+const {
+  PermissionsRepository,
+} = require('../dist/permissions/permissions.repository');
+const {
+  PermissionsService,
+} = require('../dist/permissions/permissions.service');
+
 const databaseRequire = createRequire(
   resolve('../../packages/database/package.json'),
 );
@@ -165,6 +174,7 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
       new PasswordService(),
       delivery,
       ...services,
+      new PermissionsService(new PermissionsRepository({ db }), services[0]),
     );
     await t.test(
       'admin script creates a login-ready account and rejects duplicates and invalid input',
@@ -531,6 +541,43 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
       },
     );
 
+    await t.test(
+      'only admin assigns manager permissions; me reports effective grants',
+      async () => {
+        const member = await service.authenticate(memberTokens.accessToken);
+        assert.deepEqual((await service.currentUser(member)).permissions, []);
+        assert.deepEqual(
+          (await service.currentUser(actor)).permissions,
+          PERMISSIONS,
+        );
+        await assert.rejects(
+          service.setPermissions(member, member.user.id, ['subjects.read']),
+          status(403),
+        );
+        await assert.rejects(
+          service.getPermissions(member, member.user.id),
+          status(403),
+        );
+        await assert.rejects(
+          service.setPermissions(actor, admin.id, ['subjects.read']),
+          status(400),
+        );
+        await service.setPermissions(actor, member.user.id, [
+          'subjects.read',
+          'media.upload',
+        ]);
+        assert.deepEqual((await service.currentUser(member)).permissions, [
+          'subjects.read',
+          'media.upload',
+        ]);
+        assert.deepEqual(
+          (await service.getPermissions(actor, member.user.id)).permissions,
+          ['subjects.read', 'media.upload'],
+        );
+        await service.setPermissions(actor, member.user.id, []);
+        assert.deepEqual((await service.currentUser(member)).permissions, []);
+      },
+    );
     await t.test('managers cannot invite, resend or block', async () => {
       const member = await service.authenticate(memberTokens.accessToken);
       await assert.rejects(service.listUsers(member, 20, 0), status(403));
@@ -728,6 +775,10 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
           new PasswordService(),
           failedDelivery,
           ...services,
+          new PermissionsService(
+            new PermissionsRepository({ db }),
+            services[0],
+          ),
         );
         const user = await failing.invite(actor, {
           email: 'retry@example.test',
@@ -1323,7 +1374,49 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
         assert.match(cookie, /SameSite=Strict/);
         assert.match(cookie, /Path=\/auth/);
         assert.equal(login.headers['cache-control'], 'no-store');
-        await http.get('/auth/me').set('Cookie', cookieHeader).expect(200);
+        const me = await http
+          .get('/auth/me')
+          .set('Cookie', cookieHeader)
+          .expect(200);
+        assert.deepEqual(me.body.detail.permissions, PERMISSIONS);
+        const permissionPath = `/auth/users/${invited.id}/permissions`;
+        await http.get(permissionPath).expect(401);
+        for (const permissions of [
+          ['unknown.permission'],
+          ['subjects.read', 'subjects.read'],
+          null,
+          'subjects.read',
+        ]) {
+          await http
+            .put(permissionPath)
+            .set('Cookie', cookieHeader)
+            .set('Origin', 'http://localhost:3000')
+            .send({ permissions })
+            .expect(400);
+        }
+        await http
+          .put(permissionPath)
+          .set('Cookie', cookieHeader)
+          .set('Origin', 'https://evil.example')
+          .send({ permissions: [] })
+          .expect(403);
+        await http
+          .put(permissionPath)
+          .set('Cookie', cookieHeader)
+          .set('Origin', 'http://localhost:3000')
+          .send({ permissions: ['subjects.read'] })
+          .expect(200);
+        const granted = await http
+          .get(permissionPath)
+          .set('Cookie', cookieHeader)
+          .expect(200);
+        assert.deepEqual(granted.body.detail.permissions, ['subjects.read']);
+        await http
+          .put(permissionPath)
+          .set('Cookie', cookieHeader)
+          .set('Origin', 'http://localhost:3000')
+          .send({ permissions: [] })
+          .expect(200);
         await http.get('/auth/users').expect(401);
         const listed = await http
           .get('/auth/users?limit=1&offset=0')

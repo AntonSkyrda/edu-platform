@@ -10,12 +10,54 @@ import {
   Max,
   Min,
   MinLength,
+  ValidateIf,
   validateSync,
 } from 'class-validator';
 
 import { NodeEnvironment } from './environment.types';
 
 class EnvironmentVariables {
+  @IsInt() @Min(1000) @Max(30000) MEDIA_PDF_TIMEOUT_MS: number = 5000;
+  @IsIn(['local', 's3']) STORAGE_DRIVER: string = 'local';
+  @IsString() STORAGE_LOCAL_ROOT: string = '';
+  @IsString() @IsNotEmpty() S3_REGION: string = 'us-east-1';
+  @ValidateIf((o) => o.STORAGE_DRIVER === 's3')
+  @IsString()
+  @IsNotEmpty()
+  S3_BUCKET: string = '';
+  @ValidateIf((o) => o.STORAGE_DRIVER === 's3' && o.S3_ENDPOINT !== '')
+  @IsUrl({
+    require_tld: false,
+    protocols: ['http', 'https'],
+    require_protocol: true,
+  })
+  S3_ENDPOINT: string = '';
+  @ValidateIf((o) => Boolean(o.S3_ACCESS_KEY_ID || o.S3_SECRET_ACCESS_KEY))
+  @IsNotEmpty()
+  @IsString()
+  S3_ACCESS_KEY_ID: string = '';
+  @ValidateIf((o) => Boolean(o.S3_ACCESS_KEY_ID || o.S3_SECRET_ACCESS_KEY))
+  @IsNotEmpty()
+  @IsString()
+  S3_SECRET_ACCESS_KEY: string = '';
+  @Transform(({ obj, key }: { obj: Record<string, unknown>; key: string }) =>
+    obj[key] === 'true' || obj[key] === true
+      ? true
+      : obj[key] === 'false' || obj[key] === false || obj[key] === undefined
+        ? false
+        : obj[key],
+  )
+  @IsBoolean()
+  S3_FORCE_PATH_STYLE: boolean = false;
+  @IsInt() @Min(1) @Max(20) MEDIA_IMAGE_MAX_MB: number = 5;
+  @IsInt() @Min(1) @Max(50) MEDIA_PDF_MAX_MB: number = 10;
+  @IsInt() @Min(1000000) @Max(50000000) MEDIA_IMAGE_MAX_PIXELS: number =
+    20000000;
+  @IsInt() @Min(256) @Max(4096) MEDIA_IMAGE_MAX_DIMENSION: number = 1600;
+  @IsInt() @Min(1) @Max(1000) MEDIA_PDF_MAX_PAGES: number = 500;
+  @IsInt() @Min(3600) @Max(2592000) MEDIA_ORPHAN_TTL_SECONDS: number = 86400;
+  @IsInt() @Min(60) @Max(86400) MEDIA_CLEANUP_INTERVAL_SECONDS: number = 3600;
+
   @IsString()
   @MinLength(32)
   PASSWORD_RESET_TOKEN_SECRET!: string;

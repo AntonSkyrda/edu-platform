@@ -10,17 +10,17 @@ import { FormField } from '@/shared/ui/form-field';
 import { authApi } from '../api/auth-api';
 import { AuthCard } from '../components/auth-card';
 import { loginSchema } from '../model/schemas';
-import { sessionKey } from '../model/session';
+import { sessionOptions } from '../model/session';
 export function LoginPage() {
   const client = useQueryClient();
   const router = useRouter();
   const mutation = useMutation({
     mutationFn: authApi.login,
-    onSuccess: async (result) => {
+    onSuccess: async () => {
       await client.cancelQueries();
       client.clear();
       advanceSessionVersion();
-      client.setQueryData(sessionKey, result.user);
+      await client.fetchQuery(sessionOptions);
       await router.invalidate();
       await router.navigate({ to: '/' });
     },

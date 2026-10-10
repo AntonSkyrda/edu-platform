@@ -1,3 +1,5 @@
+import { resolve } from 'node:path';
+
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createDatabaseUrl } from '@project/database';
@@ -7,6 +9,67 @@ import { NodeEnvironment } from './environment.types';
 @Injectable()
 export class EnvironmentService {
   constructor(private readonly configService: ConfigService) {}
+
+  get storageDriver(): 'local' | 's3' {
+    return this.configService.getOrThrow('STORAGE_DRIVER');
+  }
+  get storageLocalRoot(): string {
+    return (
+      this.configService.get<string>('STORAGE_LOCAL_ROOT') ||
+      resolve(__dirname, '../../../../.storage')
+    );
+  }
+  get s3Region(): string {
+    return this.configService.getOrThrow('S3_REGION');
+  }
+  get s3Bucket(): string {
+    return this.configService.getOrThrow('S3_BUCKET');
+  }
+  get s3Endpoint(): string | undefined {
+    return this.configService.get<string>('S3_ENDPOINT') || undefined;
+  }
+  get s3AccessKeyId(): string {
+    return this.configService.getOrThrow('S3_ACCESS_KEY_ID');
+  }
+  get s3SecretAccessKey(): string {
+    return this.configService.getOrThrow('S3_SECRET_ACCESS_KEY');
+  }
+  get s3ForcePathStyle(): boolean {
+    return this.configService.getOrThrow('S3_FORCE_PATH_STYLE');
+  }
+  get mediaImageMaxBytes(): number {
+    return (
+      this.configService.getOrThrow<number>('MEDIA_IMAGE_MAX_MB') * 1024 * 1024
+    );
+  }
+  get mediaPdfMaxBytes(): number {
+    return (
+      this.configService.getOrThrow<number>('MEDIA_PDF_MAX_MB') * 1024 * 1024
+    );
+  }
+  get mediaImageMaxPixels(): number {
+    return this.configService.getOrThrow('MEDIA_IMAGE_MAX_PIXELS');
+  }
+  get mediaImageMaxDimension(): number {
+    return this.configService.getOrThrow('MEDIA_IMAGE_MAX_DIMENSION');
+  }
+  get mediaPdfTimeoutMs(): number {
+    return this.configService.getOrThrow('MEDIA_PDF_TIMEOUT_MS');
+  }
+  get mediaPdfMaxPages(): number {
+    return this.configService.getOrThrow('MEDIA_PDF_MAX_PAGES');
+  }
+  get mediaOrphanTtlMs(): number {
+    return (
+      this.configService.getOrThrow<number>('MEDIA_ORPHAN_TTL_SECONDS') * 1000
+    );
+  }
+  get mediaCleanupIntervalMs(): number {
+    return (
+      this.configService.getOrThrow<number>('MEDIA_CLEANUP_INTERVAL_SECONDS') *
+      1000
+    );
+  }
 
   get passwordResetTokenSecret(): string {
     return this.configService.getOrThrow<string>('PASSWORD_RESET_TOKEN_SECRET');

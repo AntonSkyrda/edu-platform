@@ -22,9 +22,12 @@
     "test:auth": "node --test test/auth.integration.cjs",
     "test:types": "tsc -p test/tsconfig.types.json",
     "admin:create": "node dist/scripts/create-admin.js",
-    "test:logger": "node --test test/logger.integration.cjs"
+    "test:logger": "node --test test/logger.integration.cjs",
+    "test:catalog": "node --test test/catalog.integration.cjs",
+    "test:media": "node --test test/media.integration.cjs"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1148.0",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",
@@ -42,10 +45,12 @@
     "cookie": "^2.0.1",
     "nestjs-pino": "^5.2.1",
     "nodemailer": "^9.0.3",
+    "pdf-lib": "^1.17.1",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",
@@ -53,6 +58,7 @@
     "@nestjs/testing": "^11.0.1",
     "@types/express": "^5.0.0",
     "@types/jest": "^30.0.0",
+    "@types/multer": "^2.3.0",
     "@types/node": "^24.0.0",
     "@types/nodemailer": "^8.0.1",
     "@types/supertest": "^7.0.0",

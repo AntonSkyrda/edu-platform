@@ -22,8 +22,8 @@ variables. Production requires HTTPS; auth cookies are Secure in production.
 The frontend and API should be hosted on the same site for SameSite=Strict cookies.
 
 There is no public registration or API for creating ADMIN accounts. Create the
-initial administrator with `pnpm admin:create` as documented below. Granular
-manager permissions are outside this implementation.
+initial administrator with `pnpm admin:create` as documented below. Assign manager
+permissions through the ADMIN-only endpoints documented under Manager permissions.
 
 ## Authentication
 
@@ -78,7 +78,7 @@ remain in PostgreSQL. Queue payloads contain only invitation IDs.
 
 The auth controller applies per-IP rate limits. The initial in-memory limiter is
 for a single API instance; use shared throttling storage before scaling replicas.
-Frontend screens and granular manager permissions are separate follow-up work.
+The admin frontend implements the authentication flow. Permission-management screens remain follow-up work.
 
 ## Verification
 
@@ -246,3 +246,177 @@ Set `newPassword`, run the request for a link, pause for the email (allow 30 sec
 for dispatch), then paste its token into `resetToken`. The folder checks old sessions,
 old passwords and token reuse. After completing it, update `userPassword` to the
 new password before rerunning the original flow. On 429, wait 60 seconds.
+
+## Subjects and teachers catalog
+
+Catalog records are independent of user accounts. ADMIN has full access; MANAGER
+requires the permission for each action. Public endpoints only expose PUBLISHED content.
+
+| Method             | Path                               | Purpose                                                                    |
+| ------------------ | ---------------------------------- | -------------------------------------------------------------------------- |
+| GET, POST          | `/admin/subjects`                  | Paginated list including drafts; create a draft                            |
+| GET, PATCH, DELETE | `/admin/subjects/:id`              | Read, edit or permanently delete a subject                                 |
+| PATCH              | `/admin/subjects/:id/status`       | Set DRAFT or PUBLISHED                                                     |
+| GET, POST          | `/admin/teachers`                  | Paginated list including drafts; create a draft                            |
+| GET, PATCH, DELETE | `/admin/teachers/:id`              | Read, edit or permanently delete a teacher                                 |
+| PATCH              | `/admin/teachers/:id/status`       | Set DRAFT or PUBLISHED                                                     |
+| GET, PUT           | `/admin/teachers/:id/subjects`     | Read or atomically replace all subject assignments                         |
+| GET                | `/catalog/subjects`                | Published subjects ordered by sortOrder, then id                           |
+| GET                | `/catalog/subjects/:slug`          | Published subject                                                          |
+| GET                | `/catalog/subjects/:slug/teachers` | Published teachers in a published subject, ordered by assignment sortOrder |
+| GET                | `/catalog/teachers`                | Published teachers ordered by lastName, then id                            |
+| GET                | `/catalog/teachers/:slug`          | Published teacher                                                          |
+
+Lists accept `limit` (1–50, default 20) and `offset` (0–1000000, default 0).
+Responses use the existing envelope; list detail is `{items, hasMore}`.
+Private endpoints require the existing HttpOnly access cookie and trusted origin
+for mutations. Swagger includes request/response schemas for all endpoints.
+
+A subject requires a name and unique slug. A teacher requires firstName, lastName
+and unique slug. New records are always drafts. Slugs are trimmed and lowercased;
+only ASCII letters, digits and single separating hyphens are accepted.
+Publication requires a nonempty subject description or, for teachers, photoId,
+shortDescription and biography. Concurrent edits cannot bypass these requirements.
+Descriptions and biography are plain text. Slugs can be edited; old URLs are not
+redirected automatically.
+
+`photoId` references an uploaded IMAGE managed by MediaService. Teacher cards remain
+independent of user accounts. Files use private storage; published photos are served
+through `/catalog/teachers/:slug/photo`, which checks publication on every request.
+
+Example assignment replacement:
+
+```json
+{
+  "subjects": [
+    { "subjectId": "00000000-0000-4000-8000-000000000001", "sortOrder": 0 },
+    { "subjectId": "00000000-0000-4000-8000-000000000002", "sortOrder": 2 }
+  ]
+}
+```
+
+An empty subjects array removes all assignments. Duplicate or nonexistent subjects
+are rejected and the previous assignments remain intact. A published teacher can
+exist without assignments, but appears on subject pages only after assignment.
+Deleting a subject cascades its links, never its teachers. Deleting a teacher
+cascades links and schedules the detached photo for orphan cleanup.
+
+Schemas and inferred database models live in `@project/database`; transport types
+and publication statuses live in `@project/contracts`. Services access their own
+repositories. The join table uses a composite primary key rather than an artificial
+id, so its repository exposes assignment operations instead of inheriting id-based
+CRUD. Subject and teacher repositories inherit BaseRepository.
+
+Run `pnpm test:catalog` from the repository root. It uses a temporary PostgreSQL
+schema and removes it afterwards. HTTP tests exercise validation, authorization,
+public visibility, pagination, atomic assignment changes, concurrent publication,
+cascades and Swagger. They inject an authentication adapter; the separate auth
+integration suite verifies actual sessions and cookies.
+
+## Private media uploads
+
+| Method | Path                            | Purpose                                             |
+| ------ | ------------------------------- | --------------------------------------------------- |
+| POST   | `/admin/media/images`           | Upload multipart `file` (JPEG, PNG or WebP)         |
+| POST   | `/admin/media/pdfs`             | Upload multipart `file` (PDF)                       |
+| GET    | `/admin/media/:id`              | Editor-only metadata and relative preview URL       |
+| GET    | `/admin/media/:id/content`      | Editor-only image preview or PDF download           |
+| DELETE | `/admin/media/:id`              | Delete unused metadata and schedule object deletion |
+| GET    | `/catalog/teachers/:slug/photo` | Public photo of a currently published teacher       |
+
+All admin media routes require an ACTIVE ADMIN or a MANAGER with the matching
+media permission and the existing HttpOnly cookie. Upload/delete also require a trusted origin. Upload endpoints are limited to
+10 requests per minute per IP per endpoint. Each request accepts a single file and no
+extra fields. Extension, client filename and claimed MIME type are not trusted.
+
+Images default to 5 MiB and 20 million input pixels. Static JPEG, PNG and WebP are
+fully decoded, auto-oriented, resized to fit 1600×1600 without enlargement, stripped
+of EXIF metadata and encoded as WebP. Animated images, SVG and other formats are
+rejected. PDFs default to 10 MiB and 500 pages, must parse successfully and must not
+be encrypted. Parsing uses an isolated worker with a 5-second timeout and bounded JS
+heap. PDFs are stored unchanged, returned as attachments with nosniff and sandbox
+headers, and are not rendered inline. Structural validation is not a malware scan.
+
+The upload response contains `id`, `kind`, `mimeType`, byte size, image dimensions or
+PDF page count, and `/admin/media/:id/content` as `previewUrl`. Resolve relative URLs
+against the API origin. No storage object keys or bucket URLs are exposed.
+
+To set a teacher photo: upload an image, then PATCH `/admin/teachers/:id` with
+`{"photoId":"<returned id>"}`. PDF IDs and unfinished uploads cannot be assigned as
+photos. The same image may be shared. Preview requires editor authentication even
+when the image is used publicly; the public teacher photo route separately checks
+PUBLISHED status. Unpublishing, replacing the photo or deleting the teacher removes
+access through that route on the next request. Responses are `private, no-store`;
+bytes already downloaded cannot be revoked.
+
+Storage is an infrastructure adapter, independent of media and catalog business
+rules. `STORAGE_DRIVER=local` is the default: files live in the ignored repository
+`.storage` directory, outside static hosting, with private filesystem permissions.
+Set an absolute `STORAGE_LOCAL_ROOT` to use another directory. Local storage needs a
+persistent volume and backups on deployment; it is not shared across API instances.
+
+For S3-compatible storage, set `STORAGE_DRIVER=s3`, `S3_BUCKET`, `S3_REGION`, optional
+`S3_ENDPOINT` and `S3_FORCE_PATH_STYLE=true` when required by the provider. Use both
+`S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY`, or leave both empty to use the SDK's
+ambient credential chain. Provision a private bucket with public access disabled.
+The app does not create buckets, change their policies or set public ACLs. Credentials
+remain server-side. Driver choice is stored per media record; do not repoint existing
+bucket/root configuration without migrating the objects. S3 version retention is a
+bucket lifecycle concern.
+
+Unattached uploads expire after 24 hours by default. Replacement/deletion of a teacher
+starts that grace period for its old photo. Attached files are protected by a foreign
+key and cannot be deleted; cleanup never removes a referenced object. A DB transaction
+removes metadata and creates a durable deletion record before any storage deletion.
+Object deletion is idempotent and failures are retried. Failed uploads remain tracked
+as UPLOADING until cleanup. BullMQ schedules cleanup through infrastructure QueueService
+(default hourly); Redis persistence and a running worker are required. File deletion
+may therefore complete later than the DELETE response. Future PDF-owning modules must
+add a restrictive media FK and manage attachment/release expiry; PDFs uploaded without
+such a content reference currently expire like other abandoned uploads.
+
+All limits are configured in the root `.env`; see `.env.example`. No frontend upload
+UI is included. Migration 0006 replaces the unused photoKey column with photoId; it
+aborts if existing photo keys are present, rather than silently discarding them.
+
+Run `pnpm test:media` for processing, local filesystem, adapter, queue and catalog HTTP
+checks. S3 SDK calls are mocked; validate your provider's bucket permissions and access
+with its real credentials before deployment. `pnpm test:auth` verifies session and
+cookie regressions. Tests use isolated PostgreSQL schemas and temporary files.
+
+## Manager permissions
+
+ADMIN has every permission without stored grants. MANAGER starts with none.
+TEACHER and STUDENT cannot use catalog administration or private media endpoints.
+Permissions are read from PostgreSQL for each protected request, not from JWTs.
+Revocation takes effect on the next request; already running requests may finish.
+
+Shared permission names and types live in `@project/contracts`:
+
+- `subjects.read`, `subjects.create`, `subjects.update`, `subjects.publish`, `subjects.delete`
+- `teachers.read`, `teachers.create`, `teachers.update`, `teachers.publish`, `teachers.delete`
+- `media.read`, `media.upload`, `media.delete`
+
+ADMIN-only endpoints:
+
+- `GET /auth/users/:userId/permissions` returns explicitly assigned grants.
+- `PUT /auth/users/:userId/permissions` atomically replaces all manager grants.
+  Body: `{ "permissions": ["subjects.read", "teachers.read", "teachers.update"] }`.
+  An empty array revokes all grants. Unknown names and duplicates are rejected.
+
+`GET /auth/me` includes effective `permissions`. The admin client loads this
+response after login. Invitations, blocking and permission management remain ADMIN-only.
+Existing managers receive no permissions automatically after migration.
+
+Read, create, update, publish and delete are independent actions. Publish covers
+both publishing and returning to draft. Editing an already published subject or
+teacher, including teacher subject assignments, also requires its publish grant;
+this check runs inside the write transaction after locking the record. Delete
+explicitly authorizes removal even when the record is published. Teacher subject
+assignments require `teachers.update`; fetching the subject selection requires
+`subjects.read`. Photo assignment requires knowing a valid ready image ID.
+
+`media.read` grants access to the shared private media library, including draft
+images and PDFs. Public teacher photos remain available only through the published
+catalog route. Future course documents require additional course/object access
+checks. There is no permission-management screen yet; use Swagger or the API.

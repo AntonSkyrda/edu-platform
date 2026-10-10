@@ -1,7 +1,7 @@
 import type {
   ApiResponse,
   AuthResponse,
-  AuthUser,
+  CurrentUser,
   LoginRequest,
 } from '@project/contracts';
 
@@ -11,7 +11,7 @@ import { API_ENDPOINTS } from '@/shared/api/endpoints';
 export const authApi = {
   async me(signal?: AbortSignal, authenticated = true) {
     return (
-      await apiClient.get<ApiResponse<AuthUser>>(API_ENDPOINTS.auth.me, {
+      await apiClient.get<ApiResponse<CurrentUser>>(API_ENDPOINTS.auth.me, {
         signal,
         authenticated,
       })
