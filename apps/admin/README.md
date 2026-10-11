@@ -73,3 +73,33 @@ Browser tests start Vite on port 4173 and mock the API; they do not send email o
 modify accounts. API integration tests use an isolated local PostgreSQL schema.
 Actual SMTP delivery and production cookie/CORS settings must be verified in the
 deployment environment. Keep admin and API on the same site for SameSite=Strict.
+
+## Catalog and access management
+
+- `/subjects`: paginated subjects, draft creation, editing, publication and deletion.
+- `/teachers`: teacher profiles, photo upload and independent subject assignments.
+- `/media`: upload images/PDFs, retrieve a known file by ID, download and delete.
+  The backend has no media-list endpoint. This page only lists files opened during
+  its lifetime. Unattached uploads expire; PDFs have no permanent owner yet.
+- `/users`: ADMIN can edit manager grants through the permissions panel.
+
+Features own their API calls, schemas, forms and pages. Cross-feature imports use
+public exports. HTTP paths stay in `shared/api/endpoints.ts`; transport contracts
+come from `@project/contracts`. TanStack Form and Zod validate catalog forms.
+TanStack Query manages server state and invalidation after writes.
+
+Route entry, navigation and actions use effective permissions from `/auth/me`.
+Server authorization remains authoritative, including for rights revoked while
+an editor is open. Updating published content also requires its publish grant.
+Subject assignment changes are saved separately from teacher details. Uploaded
+photos are attached only after saving the teacher. Unused photos expire on the server.
+Destructive actions require confirmation. Failed writes retain form input.
+
+`pnpm --filter admin test:e2e` covers authentication, catalog lifecycle, teacher
+photos and subjects, permissions, read-only access, upload failures and mobile
+layout. These browser tests use mocked API responses; backend integration tests
+cover actual authorization, database transactions and file validation separately.
+
+Subjects contain only a name and display order in the editor. Publication is a
+separate action. Subject descriptions are removed. The API generates stable slugs
+for subjects and teachers; the admin never sends or edits slugs.

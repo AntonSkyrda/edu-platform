@@ -1,17 +1,26 @@
-import type { AuthUser } from '@project/contracts';
+import type { CurrentUser } from '@project/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, useRouter } from '@tanstack/react-router';
-import { GraduationCap, House, LogOut, Users } from 'lucide-react';
+import {
+  BookOpen,
+  ContactRound,
+  Files,
+  GraduationCap,
+  House,
+  LogOut,
+  Users,
+} from 'lucide-react';
 
 import {
   canAccessAdmin,
   endSession,
+  hasPermission,
   sessionKey,
   sessionOptions,
 } from '@/features/auth';
 import { Button } from '@/shared/ui/button';
 import { ErrorNotice } from '@/shared/ui/feedback';
-export function AdminLayout({ user }: { user: AuthUser }) {
+export function AdminLayout({ user }: { user: CurrentUser }) {
   const router = useRouter();
   const client = useQueryClient();
   const session = useQuery(sessionOptions);
@@ -49,7 +58,10 @@ export function AdminLayout({ user }: { user: AuthUser }) {
         <p className="mb-3 text-xs tracking-widest text-slate-500 uppercase">
           Робочий простір
         </p>
-        <nav aria-label="Головна навігація" className="flex gap-2 md:flex-col">
+        <nav
+          aria-label="Головна навігація"
+          className="flex flex-wrap gap-2 md:flex-col"
+        >
           <Link
             to="/"
             activeOptions={{ exact: true }}
@@ -58,6 +70,37 @@ export function AdminLayout({ user }: { user: AuthUser }) {
           >
             <House size={18} /> Огляд
           </Link>
+          {(hasPermission(current, 'subjects.read') ||
+            hasPermission(current, 'subjects.create')) && (
+            <Link
+              to="/subjects"
+              activeProps={{ className: 'bg-white/10 text-white' }}
+              className="flex items-center gap-3 rounded-lg p-3 text-sm"
+            >
+              <BookOpen size={18} /> Напрями
+            </Link>
+          )}
+          {(hasPermission(current, 'teachers.read') ||
+            hasPermission(current, 'teachers.create')) && (
+            <Link
+              to="/teachers"
+              activeProps={{ className: 'bg-white/10 text-white' }}
+              className="flex items-center gap-3 rounded-lg p-3 text-sm"
+            >
+              <ContactRound size={18} /> Викладачі
+            </Link>
+          )}
+          {(hasPermission(current, 'media.read') ||
+            hasPermission(current, 'media.upload') ||
+            hasPermission(current, 'media.delete')) && (
+            <Link
+              to="/media"
+              activeProps={{ className: 'bg-white/10 text-white' }}
+              className="flex items-center gap-3 rounded-lg p-3 text-sm"
+            >
+              <Files size={18} /> Файли
+            </Link>
+          )}
           {current.role === 'ADMIN' && (
             <Link
               to="/users"

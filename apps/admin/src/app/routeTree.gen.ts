@@ -15,6 +15,9 @@ import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated.index'
+import { Route as AuthenticatedMediaRouteImport } from './routes/_authenticated.media'
+import { Route as AuthenticatedSubjectsRouteImport } from './routes/_authenticated.subjects'
+import { Route as AuthenticatedTeachersRouteImport } from './routes/_authenticated.teachers'
 import { Route as AuthenticatedUsersRouteImport } from './routes/_authenticated.users'
 
 const AuthenticatedRoute = AuthenticatedRouteImport.update({
@@ -46,6 +49,21 @@ const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedMediaRoute = AuthenticatedMediaRouteImport.update({
+  id: '/media',
+  path: '/media',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedSubjectsRoute = AuthenticatedSubjectsRouteImport.update({
+  id: '/subjects',
+  path: '/subjects',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedTeachersRoute = AuthenticatedTeachersRouteImport.update({
+  id: '/teachers',
+  path: '/teachers',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedUsersRoute = AuthenticatedUsersRouteImport.update({
   id: '/users',
   path: '/users',
@@ -58,6 +76,9 @@ export interface FileRoutesByFullPath {
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/media': typeof AuthenticatedMediaRoute
+  '/subjects': typeof AuthenticatedSubjectsRoute
+  '/teachers': typeof AuthenticatedTeachersRoute
   '/users': typeof AuthenticatedUsersRoute
 }
 export interface FileRoutesByTo {
@@ -65,6 +86,9 @@ export interface FileRoutesByTo {
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/media': typeof AuthenticatedMediaRoute
+  '/subjects': typeof AuthenticatedSubjectsRoute
+  '/teachers': typeof AuthenticatedTeachersRoute
   '/users': typeof AuthenticatedUsersRoute
   '/': typeof AuthenticatedIndexRoute
 }
@@ -75,6 +99,9 @@ export interface FileRoutesById {
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/_authenticated/media': typeof AuthenticatedMediaRoute
+  '/_authenticated/subjects': typeof AuthenticatedSubjectsRoute
+  '/_authenticated/teachers': typeof AuthenticatedTeachersRoute
   '/_authenticated/users': typeof AuthenticatedUsersRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
 }
@@ -86,6 +113,9 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/login'
     | '/reset-password'
+    | '/media'
+    | '/subjects'
+    | '/teachers'
     | '/users'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -93,6 +123,9 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/login'
     | '/reset-password'
+    | '/media'
+    | '/subjects'
+    | '/teachers'
     | '/users'
     | '/'
   id:
@@ -102,6 +135,9 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/login'
     | '/reset-password'
+    | '/_authenticated/media'
+    | '/_authenticated/subjects'
+    | '/_authenticated/teachers'
     | '/_authenticated/users'
     | '/_authenticated/'
   fileRoutesById: FileRoutesById
@@ -158,6 +194,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedIndexRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/media': {
+      id: '/_authenticated/media'
+      path: '/media'
+      fullPath: '/media'
+      preLoaderRoute: typeof AuthenticatedMediaRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/subjects': {
+      id: '/_authenticated/subjects'
+      path: '/subjects'
+      fullPath: '/subjects'
+      preLoaderRoute: typeof AuthenticatedSubjectsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/teachers': {
+      id: '/_authenticated/teachers'
+      path: '/teachers'
+      fullPath: '/teachers'
+      preLoaderRoute: typeof AuthenticatedTeachersRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/users': {
       id: '/_authenticated/users'
       path: '/users'
@@ -169,11 +226,17 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedRouteChildren {
+  AuthenticatedMediaRoute: typeof AuthenticatedMediaRoute
+  AuthenticatedSubjectsRoute: typeof AuthenticatedSubjectsRoute
+  AuthenticatedTeachersRoute: typeof AuthenticatedTeachersRoute
   AuthenticatedUsersRoute: typeof AuthenticatedUsersRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
+  AuthenticatedMediaRoute: AuthenticatedMediaRoute,
+  AuthenticatedSubjectsRoute: AuthenticatedSubjectsRoute,
+  AuthenticatedTeachersRoute: AuthenticatedTeachersRoute,
   AuthenticatedUsersRoute: AuthenticatedUsersRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
 }

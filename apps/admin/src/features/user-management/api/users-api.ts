@@ -2,12 +2,31 @@ import type {
   ApiResponse,
   AuthUser,
   InviteUserRequest,
+  Permission,
+  PermissionsResponse,
   UsersPage,
 } from '@project/contracts';
 
 import { apiClient } from '@/shared/api/client';
 import { API_ENDPOINTS } from '@/shared/api/endpoints';
 export const usersApi = {
+  async permissions(id: string, signal?: AbortSignal) {
+    return (
+      await apiClient.get<ApiResponse<PermissionsResponse>>(
+        API_ENDPOINTS.users.permissions(id),
+        { authenticated: true, signal },
+      )
+    ).data.detail.permissions;
+  },
+  async setPermissions(id: string, permissions: Permission[]) {
+    return (
+      await apiClient.put<ApiResponse<PermissionsResponse>>(
+        API_ENDPOINTS.users.permissions(id),
+        { permissions },
+        { authenticated: true },
+      )
+    ).data.detail.permissions;
+  },
   async list(page: number, signal?: AbortSignal) {
     return (
       await apiClient.get<ApiResponse<UsersPage>>(API_ENDPOINTS.users.list, {
