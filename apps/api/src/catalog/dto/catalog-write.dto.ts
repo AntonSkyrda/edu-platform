@@ -19,7 +19,6 @@ import {
   IsString,
   IsUUID,
   Length,
-  Matches,
   Max,
   MaxLength,
   Min,
@@ -27,25 +26,13 @@ import {
   ValidateNested,
 } from 'class-validator';
 
-import { normalizeSlug, trimString } from '../helpers/catalog-transform.helper';
+import { trimString } from '../helpers/catalog-transform.helper';
 export class CreateSubjectDto implements CreateSubjectRequest {
   @ApiProperty({ maxLength: 100 })
   @Transform(trimString)
   @IsString()
   @Length(1, 100)
   name!: string;
-  @ApiProperty({ maxLength: 150, example: 'istoriia-ukrainy' })
-  @Transform(normalizeSlug)
-  @IsString()
-  @Length(1, 150)
-  @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
-  slug!: string;
-  @ApiPropertyOptional({ type: String, nullable: true, maxLength: 10000 })
-  @IsOptional()
-  @Transform(trimString)
-  @IsString()
-  @MaxLength(10000)
-  description?: string | null;
   @ApiPropertyOptional({ default: 0, minimum: 0 })
   @ValidateIf((_o, value) => value !== undefined)
   @IsInt()
@@ -67,12 +54,6 @@ export class CreateTeacherDto implements CreateTeacherRequest {
   @IsString()
   @Length(1, 100)
   lastName!: string;
-  @ApiProperty({ maxLength: 200, example: 'olena-koval' })
-  @Transform(normalizeSlug)
-  @IsString()
-  @Length(1, 200)
-  @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
-  slug!: string;
   @ApiPropertyOptional({
     type: String,
     nullable: true,

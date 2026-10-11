@@ -186,7 +186,7 @@ test('catalog API against isolated PostgreSQL schema', async (t) => {
         await grant(['subjects.read']);
         await editor('get', '/admin/subjects').expect(200);
         await editor('post', '/admin/subjects')
-          .send({ name: 'Denied', slug: 'denied' })
+          .send({ name: 'Denied' })
           .expect(403);
         await editor('get', '/admin/teachers').expect(403);
         await grant([]);
@@ -200,8 +200,6 @@ test('catalog API against isolated PostgreSQL schema', async (t) => {
         const created = await editor('post', '/admin/subjects')
           .send({
             name: 'Protected',
-            slug: 'protected',
-            description: 'Description',
           })
           .expect(201);
         const id = created.body.detail.id;
@@ -268,7 +266,7 @@ test('catalog API against isolated PostgreSQL schema', async (t) => {
       async () => {
         subject = (
           await editor('post', '/admin/subjects')
-            .send({ name: ' History ', slug: ' History ', sortOrder: 4 })
+            .send({ name: ' History ', sortOrder: 4 })
             .expect(201)
         ).body.detail;
         assert.equal(subject.name, 'History');
@@ -276,12 +274,12 @@ test('catalog API against isolated PostgreSQL schema', async (t) => {
         assert.equal(subject.status, 'DRAFT');
         await editor('post', '/admin/subjects')
           .send({ name: 'Duplicate', slug: 'HISTORY' })
-          .expect(409);
+          .expect(400);
         for (const payload of [
-          { name: '', slug: 'valid' },
+          { name: '' },
           { name: 'Name', slug: '../bad' },
-          { name: 'Name', slug: 'valid', sortOrder: -1 },
-          { name: 'Name', slug: 'valid', sortOrder: null },
+          { name: 'Name', sortOrder: -1 },
+          { name: 'Name', sortOrder: null },
         ])
           await editor('post', '/admin/subjects').send(payload).expect(400);
         teacher = (
@@ -289,14 +287,13 @@ test('catalog API against isolated PostgreSQL schema', async (t) => {
             .send({
               firstName: 'Olena',
               lastName: 'Koval',
-              slug: 'olena-koval',
             })
             .expect(201)
         ).body.detail;
         assert.equal('userId' in teacher, false);
         await editor('post', '/admin/teachers')
           .send({ firstName: 'Other', lastName: 'Name', slug: teacher.slug })
-          .expect(409);
+          .expect(400);
         await editor('patch', `/admin/teachers/${teacher.id}`)
           .send({ userId: randomUUID() })
           .expect(400);
@@ -311,15 +308,12 @@ test('catalog API against isolated PostgreSQL schema', async (t) => {
           (await http.get('/catalog/teachers').expect(200)).body.detail.items,
           [],
         );
-        await editor('patch', `/admin/subjects/${subject.id}/status`)
-          .send({ status: 'PUBLISHED' })
-          .expect(400);
         await editor('patch', `/admin/teachers/${teacher.id}/status`)
           .send({ status: 'PUBLISHED' })
           .expect(400);
         await editor('patch', `/admin/subjects/${subject.id}`)
-          .send({ description: 'Preparation for history exam' })
-          .expect(200);
+          .send({ description: 'Removed field' })
+          .expect(400);
         await editor('patch', `/admin/subjects/${subject.id}/status`)
           .send({ status: 'PUBLISHED' })
           .expect(200);
@@ -356,8 +350,6 @@ test('catalog API against isolated PostgreSQL schema', async (t) => {
           await editor('post', '/admin/subjects')
             .send({
               name: 'Literature',
-              slug: 'literature',
-              description: 'Preparation',
               sortOrder: 0,
             })
             .expect(201)
@@ -588,10 +580,9 @@ test('catalog API against isolated PostgreSQL schema', async (t) => {
           .send({
             firstName: 'Duplicate',
             lastName: 'Teacher',
-            slug: teacher.slug,
-            photoId: replacement.id,
+            photoId: randomUUID(),
           })
-          .expect(409);
+          .expect(404);
         assert(
           (
             await pool.query('SELECT expires_at FROM media WHERE id = $1', [
@@ -604,7 +595,6 @@ test('catalog API against isolated PostgreSQL schema', async (t) => {
             .send({
               firstName: 'Shared',
               lastName: 'Teacher',
-              slug: 'shared-teacher',
               photoId: photo.id,
             })
             .expect(201)
@@ -626,6 +616,45 @@ test('catalog API against isolated PostgreSQL schema', async (t) => {
         await cleanup.run();
         await editor('get', `/admin/media/${photo.id}`).expect(404);
         await editor('get', `/admin/media/${replacement.id}`).expect(200);
+      },
+    );
+    await t.test(
+      'automatic slugs are unique, immutable and support Ukrainian names',
+      async () => {
+        const responses = await Promise.all(
+          Array.from({ length: 3 }, () =>
+            editor('post', '/admin/subjects')
+              .send({ name: 'Історія України' })
+              .expect(201),
+          ),
+        );
+        const rows = responses.map((response) => response.body.detail);
+        assert.equal(new Set(rows.map((row) => row.slug)).size, 3);
+        assert(rows.some((row) => row.slug === 'istoriya-ukrayiny'));
+        for (const row of rows) {
+          assert.equal('description' in row, false);
+          const updated = await editor('patch', `/admin/subjects/${row.id}`)
+            .send({ name: 'Нова назва' })
+            .expect(200);
+          assert.equal(updated.body.detail.slug, row.slug);
+          await editor('delete', `/admin/subjects/${row.id}`).expect(200);
+        }
+        const twins = await Promise.all(
+          Array.from({ length: 2 }, () =>
+            editor('post', '/admin/teachers')
+              .send({ firstName: 'Олена', lastName: 'Коваль' })
+              .expect(201),
+          ),
+        );
+        assert.notEqual(twins[0].body.detail.slug, twins[1].body.detail.slug);
+        for (const response of twins) {
+          const row = response.body.detail;
+          const updated = await editor('patch', `/admin/teachers/${row.id}`)
+            .send({ firstName: 'Ірина' })
+            .expect(200);
+          assert.equal(updated.body.detail.slug, row.slug);
+          await editor('delete', `/admin/teachers/${row.id}`).expect(200);
+        }
       },
     );
     await t.test(
