@@ -2,15 +2,12 @@ export const PUBLICATION_STATUSES = ['DRAFT', 'PUBLISHED'] as const;
 export type PublicationStatus = (typeof PUBLICATION_STATUSES)[number];
 export interface CreateSubjectRequest {
   name: string;
-  slug: string;
-  description?: string | null;
   sortOrder?: number;
 }
 export type UpdateSubjectRequest = Partial<CreateSubjectRequest>;
 export interface CreateTeacherRequest {
   firstName: string;
   lastName: string;
-  slug: string;
   photoId?: string | null;
   shortDescription?: string | null;
   biography?: string | null;
@@ -20,7 +17,6 @@ export interface SubjectResponse {
   id: string;
   name: string;
   slug: string;
-  description: string | null;
   sortOrder: number;
   status: PublicationStatus;
   createdAt: string;

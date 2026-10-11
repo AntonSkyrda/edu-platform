@@ -19,7 +19,6 @@ export class SubjectResponseDto
   implements SubjectResponse
 {
   @ApiProperty() name!: string;
-  @ApiProperty({ type: String, nullable: true }) description!: string | null;
   @ApiProperty() sortOrder!: number;
 }
 export class TeacherResponseDto
