@@ -14,6 +14,7 @@ import type { Subject } from '@project/database/types';
 import { DatabaseService } from '../../database/database.service';
 import { PermissionsService } from '../../permissions/permissions.service';
 import { throwCatalogWriteError } from '../helpers/catalog-write-error';
+import { createWithCatalogSlug } from '../helpers/create-catalog-slug';
 import type { GetCatalogEntityOptions } from '../interfaces/get-catalog-entity-options.interface';
 import { toSubject } from '../mappers/catalog.mapper';
 import { SubjectsRepository } from '../repositories/subjects.repository';
@@ -55,16 +56,17 @@ export class SubjectsService {
   }
   async create(data: CreateSubjectRequest) {
     try {
-      return toSubject(await this.repository.create(data));
+      return toSubject(
+        await createWithCatalogSlug(
+          data.name,
+          150,
+          'subjects_slug_unique',
+          (slug) => this.repository.create({ ...data, slug }),
+        ),
+      );
     } catch (error) {
       throwCatalogWriteError(error);
     }
-  }
-  private validatePublication(value: Subject) {
-    if (value.status === 'PUBLISHED' && !value.description?.trim())
-      throw new BadRequestException(
-        'Add a subject description before publishing',
-      );
   }
   private async write(
     id: string,
@@ -82,7 +84,6 @@ export class SubjectsService {
         if (current.status === 'PUBLISHED' || data.status !== undefined) {
           await this.permissions.require(actor, ['subjects.publish'], tx);
         }
-        this.validatePublication({ ...current, ...data });
         const updated = await this.repository.update(id, data, tx);
         if (!updated) throw new NotFoundException('Subject not found');
         return toSubject(updated);

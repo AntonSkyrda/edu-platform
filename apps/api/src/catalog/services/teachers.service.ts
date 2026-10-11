@@ -16,6 +16,7 @@ import { DatabaseService } from '../../database/database.service';
 import { MediaService } from '../../media/services/media.service';
 import { PermissionsService } from '../../permissions/permissions.service';
 import { throwCatalogWriteError } from '../helpers/catalog-write-error';
+import { createWithCatalogSlug } from '../helpers/create-catalog-slug';
 import type { GetCatalogEntityOptions } from '../interfaces/get-catalog-entity-options.interface';
 import { toTeacher } from '../mappers/catalog.mapper';
 import { TeachersRepository } from '../repositories/teachers.repository';
@@ -59,11 +60,19 @@ export class TeachersService {
   }
   async create(data: CreateTeacherRequest) {
     try {
-      return await this.database.db.transaction(async (tx) => {
-        if (data.photoId)
-          await this.media.prepareImageReplacement(null, data.photoId, tx);
-        return toTeacher(await this.repository.create(data, tx));
-      });
+      return await createWithCatalogSlug(
+        `${data.firstName} ${data.lastName}`,
+        200,
+        'teachers_slug_unique',
+        (slug) =>
+          this.database.db.transaction(async (tx) => {
+            if (data.photoId)
+              await this.media.prepareImageReplacement(null, data.photoId, tx);
+            return toTeacher(
+              await this.repository.create({ ...data, slug }, tx),
+            );
+          }),
+      );
     } catch (error) {
       throwCatalogWriteError(error);
     }

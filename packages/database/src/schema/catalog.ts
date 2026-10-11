@@ -24,7 +24,6 @@ export const subjects = pgTable(
     ...baseColumns(),
     name: varchar('name', { length: 100 }).notNull(),
     slug: varchar('slug', { length: 150 }).notNull().unique(),
-    description: text('description'),
     sortOrder: integer('sort_order').notNull().default(0),
     status: publicationStatusEnum('status').notNull().default('DRAFT'),
   },

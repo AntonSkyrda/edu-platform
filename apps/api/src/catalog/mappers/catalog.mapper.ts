@@ -5,7 +5,6 @@ export function toSubject(s: Subject): SubjectResponse {
     id: s.id,
     name: s.name,
     slug: s.slug,
-    description: s.description,
     sortOrder: s.sortOrder,
     status: s.status,
     createdAt: s.createdAt.toISOString(),
