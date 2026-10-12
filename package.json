@@ -4,21 +4,23 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "lint": "eslint .",
+    "lint": "pnpm artifacts:check && eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
-    "build": "pnpm -r --if-present run build",
-    "dev:api": "pnpm --filter @project/contracts --filter @project/database build && pnpm --filter api start:dev",
-    "db:generate": "pnpm --filter @project/database db:generate",
-    "db:migrate": "pnpm --filter @project/database db:migrate",
+    "build": "pnpm artifacts:check && pnpm -r --if-present run build",
+    "dev:api": "pnpm artifacts:check && pnpm --filter @project/contracts --filter @project/database build && pnpm --filter api start:dev",
+    "db:generate": "pnpm artifacts:check && pnpm --filter @project/database db:generate",
+    "db:migrate": "pnpm artifacts:check && pnpm --filter @project/database db:migrate",
     "db:studio": "pnpm --filter @project/database db:studio",
     "test:auth": "pnpm build && pnpm --filter api test:auth",
     "admin:create": "pnpm build && pnpm --filter api admin:create",
     "test:logger": "pnpm build && pnpm --filter api test:logger",
-    "dev:admin": "pnpm --filter @project/contracts build && pnpm --filter admin dev",
-    "test:catalog": "pnpm --filter @project/contracts --filter @project/database --filter api build && pnpm --filter api test:catalog",
-    "test:media": "pnpm --filter @project/contracts --filter @project/database --filter api build && pnpm --filter api test:media && pnpm --filter api test:catalog"
+    "dev:admin": "pnpm artifacts:check && pnpm --filter @project/contracts build && pnpm --filter admin dev",
+    "test:catalog": "pnpm artifacts:check && pnpm --filter @project/contracts --filter @project/database --filter api build && pnpm --filter api test:catalog",
+    "test:media": "pnpm artifacts:check && pnpm --filter @project/contracts --filter @project/database --filter api build && pnpm --filter api test:media && pnpm --filter api test:catalog",
+    "artifacts:check": "node scripts/check-artifacts.mjs",
+    "artifacts:clean": "node scripts/check-artifacts.mjs --fix"
   },
   "devEngines": {
     "packageManager": {

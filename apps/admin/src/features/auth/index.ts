@@ -9,3 +9,5 @@ export {
   canAccessAdmin,
 } from './model/session';
 export { captureLinkToken } from './model/link-token';
+
+export { hasPermission, usePermissions } from './model/permissions';

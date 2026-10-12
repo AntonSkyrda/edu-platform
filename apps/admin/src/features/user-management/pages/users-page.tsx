@@ -1,3 +1,4 @@
+import type { AuthUser } from '@project/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
@@ -6,8 +7,10 @@ import { ErrorNotice, SuccessNotice } from '@/shared/ui/feedback';
 
 import { usersApi } from '../api/users-api';
 import { InviteForm } from '../components/invite-form';
+import { PermissionsEditor } from '../components/permissions-editor';
 import { roleLabels, statusLabels } from '../model/schemas';
 export function UsersPage() {
+  const [selected, setSelected] = useState<AuthUser | null>(null);
   const [page, setPage] = useState(0);
   const client = useQueryClient();
   const users = useQuery({
@@ -38,6 +41,13 @@ export function UsersPage() {
         </p>
       </header>
       <InviteForm />
+      {selected && (
+        <PermissionsEditor
+          key={selected.id}
+          user={selected}
+          onClose={() => setSelected(null)}
+        />
+      )}
       <section className="overflow-hidden rounded-xl border bg-white">
         <div className="flex items-center justify-between border-b p-5">
           <h2 className="font-semibold">Учасники платформи</h2>
@@ -97,6 +107,15 @@ export function UsersPage() {
                         </td>
                         <td className="px-3">
                           <div className="flex justify-end gap-2">
+                            {user.role === 'MANAGER' && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setSelected(user)}
+                              >
+                                Права
+                              </Button>
+                            )}
                             {user.status === 'INVITED' && (
                               <Button
                                 variant="outline"
