@@ -26,23 +26,21 @@ async function unusedPort() {
 
 test(
   'production SIGTERM drains real deliveries before closing PostgreSQL and bounds a stalled shutdown',
-  { timeout: 120000 },
+  { timeout: 180000 },
   async (t) => {
     const { db, pool, namespace } = await databaseFixture(t, 'shutdown');
     const smtp = await smtpServer(t, 'data-hold');
     const relay = await redisRelay(t);
     const directory = await mkdtemp(join(tmpdir(), 'edu-shutdown-'));
     const password = 'Shutdown-test-only-password!';
-    await db
-      .insert(users)
-      .values({
-        email: 'admin@shutdown.test',
-        firstName: 'Admin',
-        lastName: 'Test',
-        role: 'ADMIN',
-        status: 'ACTIVE',
-        passwordHash: await hash(password),
-      });
+    await db.insert(users).values({
+      email: 'admin@shutdown.test',
+      firstName: 'Admin',
+      lastName: 'Test',
+      role: 'ADMIN',
+      status: 'ACTIVE',
+      passwordHash: await hash(password),
+    });
     const redis = new Redis({
       host: process.env.REDIS_HOST,
       port: Number(process.env.REDIS_PORT),
@@ -52,6 +50,7 @@ test(
     });
     redis.on('error', () => undefined);
     let child, exited;
+    let childErrors = [];
     const start = async (shutdownMs) => {
       const port = await unusedPort();
       child = spawn(process.execPath, [resolve('dist/main.js')], {
@@ -85,8 +84,12 @@ test(
           PASSWORD_RESET_DELIVERY_POLL_SECONDS: '1',
         },
       });
+      childErrors = [];
       child.stdout.resume();
-      child.stderr.resume();
+      child.stderr.on('data', (chunk) => {
+        childErrors.push(chunk.toString());
+        if (childErrors.length > 20) childErrors.shift();
+      });
       exited = once(child, 'exit');
       const url = `http://127.0.0.1:${port}`;
       await until(async () => {
@@ -196,17 +199,64 @@ test(
           smtp.mode = 'ready';
           smtp.disconnect();
           await start(5000);
-          // BullMQ recovers the abandoned active job after its lock expires.
-          await until(
-            async () =>
-              (
-                await pool.query(
-                  'SELECT delivery_status FROM user_invitations WHERE user_id = $1',
-                  [user.id],
-                )
-              ).rows[0].delivery_status === 'sent',
-            75000,
-          );
+          // BullMQ uses a 30s lock and a shared 30s stalled-check gate. Recovery
+          // needs two successful scans; a scan near the gate's expiry can be
+          // skipped, taking ~90s after restart. Keep this separate from the
+          // strict shutdown deadline above, and leave room for CI scheduling.
+          try {
+            await until(async () => {
+              assert.equal(child.exitCode, null, 'Restarted API exited');
+              assert.equal(child.signalCode, null, 'Restarted API was killed');
+              return (
+                (
+                  await pool.query(
+                    'SELECT delivery_status FROM user_invitations WHERE user_id = $1',
+                    [user.id],
+                  )
+                ).rows[0].delivery_status === 'sent'
+              );
+            }, 120000);
+          } catch (error) {
+            const row = (
+              await pool.query(
+                `SELECT id, delivery_status, delivery_attempts, delivery_error,
+                        dispatch_attempts
+                 FROM user_invitations WHERE user_id = $1`,
+                [user.id],
+              )
+            ).rows[0];
+            const key = `${namespace}:email`;
+            // Only fixture status/IDs, never job payloads or message bodies.
+            t.diagnostic(
+              JSON.stringify({
+                childExit: child.exitCode,
+                childSignal: child.signalCode,
+                childErrors,
+                row,
+                lockTtl: await redis.pttl(`${key}:${row.id}:lock`),
+                stalledCheckTtl: await redis.pttl(`${key}:stalled-check`),
+                active: await redis.lrange(`${key}:active`, 0, -1),
+                waiting: await redis.lrange(`${key}:wait`, 0, -1),
+                stalled: await redis.smembers(`${key}:stalled`),
+                job: await redis.hmget(
+                  `${key}:${row.id}`,
+                  'stc',
+                  'defa',
+                  'failedReason',
+                  'ats',
+                  'atm',
+                ),
+                events: await redis.xrevrange(
+                  `${key}:events`,
+                  '+',
+                  '-',
+                  'COUNT',
+                  10,
+                ),
+              }),
+            );
+            throw error;
+          }
           child.kill('SIGTERM');
           await exited;
         },
