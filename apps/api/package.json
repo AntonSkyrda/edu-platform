@@ -24,7 +24,13 @@
     "admin:create": "node dist/scripts/create-admin.js",
     "test:logger": "node --test test/logger.integration.cjs",
     "test:catalog": "node --test test/catalog.integration.cjs",
-    "test:media": "node --test test/media.integration.cjs"
+    "test:media": "node --test test/media.integration.cjs",
+    "test:rate-limit": "node --test test/rate-limit*.integration.cjs",
+    "test:health": "node --test test/health.integration.cjs",
+    "typecheck": "tsc --noEmit -p tsconfig.build.json && pnpm test:types",
+    "test:integration": "node --test test/*.integration.cjs",
+    "test:email": "node --test test/email*.integration.cjs",
+    "test:queue": "node --test test/queue*.integration.cjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1148.0",
@@ -43,6 +49,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "cookie": "^2.0.1",
+    "ioredis": "^5.11.1",
     "nestjs-pino": "^5.2.1",
     "nodemailer": "^9.0.3",
     "pdf-lib": "^1.17.1",

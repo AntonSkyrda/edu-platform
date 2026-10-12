@@ -1,9 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import type { AuthUser, UsersPage } from '@project/contracts';
+import type { AdminUser, UsersPage } from '@project/contracts';
 import { Type } from 'class-transformer';
 import { IsInt, Max, Min } from 'class-validator';
 
-import { AuthUserDto } from './auth-response.dto';
+import { AdminUserDto } from './delivery.dto';
 export class ListUsersDto {
   @Type(() => Number)
   @IsInt()
@@ -19,6 +19,6 @@ export class ListUsersDto {
   offset = 0;
 }
 export class UsersPageDto implements UsersPage {
-  @ApiProperty({ type: [AuthUserDto] }) items!: AuthUser[];
+  @ApiProperty({ type: [AdminUserDto] }) items!: AdminUser[];
   @ApiProperty() hasMore!: boolean;
 }

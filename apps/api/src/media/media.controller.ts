@@ -19,7 +19,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 
 import {
   ApiEnvelope,
@@ -29,6 +29,7 @@ import { RequirePermissions } from '../common/decorators/require-permissions.dec
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { streamFile } from '../common/helpers/stream-file.helper';
 import { MediaMessageDto, MediaResponseDto } from './dto/media-response.dto';
+import { MediaAdmissionInterceptor } from './media-admission.interceptor';
 import { MediaService } from './services/media.service';
 @ApiTags('Media')
 @ApiCookieAuth('accessCookie')
@@ -36,16 +37,16 @@ import { MediaService } from './services/media.service';
 @ApiErrorEnvelope(401, 'Authentication required')
 @ApiErrorEnvelope(403, 'Required permission missing')
 @ApiErrorEnvelope(413, 'File is too large')
-@ApiErrorEnvelope(429, 'Upload rate limit exceeded')
-@ApiErrorEnvelope(503, 'Storage temporarily unavailable')
-@UseGuards(PermissionsGuard, ThrottlerGuard)
+@ApiErrorEnvelope(429, 'Rate limit exceeded; retry after the indicated delay')
+@ApiErrorEnvelope(503, 'Storage or rate limiting temporarily unavailable')
+@UseGuards(PermissionsGuard)
 @Controller('admin/media')
 export class MediaController {
   constructor(private readonly media: MediaService) {}
   @RequirePermissions('media.upload')
   @Post('images')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(MediaAdmissionInterceptor, FileInterceptor('file'))
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -61,7 +62,7 @@ export class MediaController {
   @RequirePermissions('media.upload')
   @Post('pdfs')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(MediaAdmissionInterceptor, FileInterceptor('file'))
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {

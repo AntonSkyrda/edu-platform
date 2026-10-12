@@ -6,6 +6,8 @@ import { Button } from '@/shared/ui/button';
 import { ErrorNotice, SuccessNotice } from '@/shared/ui/feedback';
 
 import { usersApi } from '../api/users-api';
+import { DeliveryHealth } from '../components/delivery-health';
+import { InvitationStatus } from '../components/invitation-status';
 import { InviteForm } from '../components/invite-form';
 import { PermissionsEditor } from '../components/permissions-editor';
 import { roleLabels, statusLabels } from '../model/schemas';
@@ -16,6 +18,7 @@ export function UsersPage() {
   const users = useQuery({
     queryKey: ['users', page],
     queryFn: ({ signal }) => usersApi.list(page, signal),
+    refetchInterval: 15000,
   });
   const action = useMutation({
     mutationFn: usersApi.action,
@@ -40,6 +43,7 @@ export function UsersPage() {
           доступом.
         </p>
       </header>
+      <DeliveryHealth />
       <InviteForm />
       {selected && (
         <PermissionsEditor
@@ -64,7 +68,7 @@ export function UsersPage() {
           {action.isSuccess && (
             <SuccessNotice>
               {action.variables.action === 'resend'
-                ? 'Новий лист поставлено в чергу.'
+                ? 'Нове запрошення збережено. Стан доставки оновиться автоматично.'
                 : action.variables.action === 'unblock'
                   ? 'Доступ відновлено. Якщо акаунт не активовано, надішліть запрошення повторно.'
                   : 'Користувача заблоковано.'}
@@ -83,6 +87,7 @@ export function UsersPage() {
                       <th className="px-3 py-3">Користувач</th>
                       <th className="px-3">Роль</th>
                       <th className="px-3">Статус</th>
+                      <th className="px-3">Запрошення</th>
                       <th className="px-3 text-right">Дії</th>
                     </tr>
                   </thead>
@@ -104,6 +109,9 @@ export function UsersPage() {
                           >
                             {statusLabels[user.status]}
                           </span>
+                        </td>
+                        <td className="px-3">
+                          <InvitationStatus delivery={user.invitation} />
                         </td>
                         <td className="px-3">
                           <div className="flex justify-end gap-2">

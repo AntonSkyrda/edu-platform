@@ -40,6 +40,11 @@ export const ApiErrorEnvelope = (status: number, description: string) =>
           ],
         },
         result: { type: 'string', enum: ['error'] },
+        code: {
+          type: 'string',
+          description: 'Optional machine-readable error code',
+          example: 'VERSION_CONFLICT',
+        },
       },
     },
   });

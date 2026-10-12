@@ -20,7 +20,15 @@
     "test:catalog": "pnpm artifacts:check && pnpm --filter @project/contracts --filter @project/database --filter api build && pnpm --filter api test:catalog",
     "test:media": "pnpm artifacts:check && pnpm --filter @project/contracts --filter @project/database --filter api build && pnpm --filter api test:media && pnpm --filter api test:catalog",
     "artifacts:check": "node scripts/check-artifacts.mjs",
-    "artifacts:clean": "node scripts/check-artifacts.mjs --fix"
+    "artifacts:clean": "node scripts/check-artifacts.mjs --fix",
+    "test:rate-limit": "pnpm artifacts:check && pnpm --filter @project/contracts --filter @project/database --filter api build && pnpm --filter api test:rate-limit",
+    "test:health": "pnpm artifacts:check && pnpm --filter @project/contracts --filter @project/database --filter api build && pnpm --filter api test:health",
+    "typecheck": "pnpm artifacts:check && pnpm --filter @project/contracts --filter @project/database build && pnpm -r --if-present run typecheck",
+    "test:api": "pnpm artifacts:check && pnpm --filter @project/contracts --filter @project/database --filter api build && pnpm --filter api test:integration",
+    "test:admin": "pnpm --filter admin test",
+    "test:e2e": "pnpm artifacts:check && pnpm --filter @project/contracts --filter @project/database --filter api build && pnpm --filter admin test:e2e:real",
+    "test:email": "pnpm artifacts:check && pnpm --filter @project/contracts --filter @project/database --filter api build && pnpm --filter api test:email",
+    "test:queue": "pnpm artifacts:check && pnpm --filter @project/contracts --filter @project/database --filter api build && pnpm --filter api test:queue"
   },
   "devEngines": {
     "packageManager": {

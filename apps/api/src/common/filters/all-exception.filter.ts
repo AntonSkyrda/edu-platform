@@ -9,6 +9,8 @@ import {
 import type { ApiResponse } from '@project/contracts';
 import type { Response } from 'express';
 
+import { isDatabaseTimeout } from '../helpers/database-timeout';
+
 @Catch()
 export class AllExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionFilter.name);
@@ -16,6 +18,19 @@ export class AllExceptionFilter implements ExceptionFilter {
     const context = host.switchToHttp();
     const response = context.getResponse<Response>();
 
+    if (isDatabaseTimeout(exception)) {
+      this.logger.warn({ event: 'database.operation_timeout' });
+      response.setHeader('Retry-After', '1');
+      response
+        .status(503)
+        .json({
+          status_code: 503,
+          result: 'error',
+          code: 'DATABASE_TIMEOUT',
+          detail: 'Database operation timed out. Please retry.',
+        });
+      return;
+    }
     const statusCode =
       exception instanceof HttpException
         ? exception.getStatus()
@@ -34,7 +49,17 @@ export class AllExceptionFilter implements ExceptionFilter {
         ? this.getHttpExceptionDetail(exception)
         : 'Internal server error';
 
+    const errorBody =
+      exception instanceof HttpException ? exception.getResponse() : null;
+    const code =
+      typeof errorBody === 'object' &&
+      errorBody !== null &&
+      'code' in errorBody &&
+      typeof errorBody.code === 'string'
+        ? errorBody.code
+        : undefined;
     const responseBody: ApiResponse<string | string[]> = {
+      ...(code ? { code } : {}),
       status_code: statusCode,
       detail: detail,
       result: 'error',

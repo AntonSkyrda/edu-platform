@@ -12,6 +12,12 @@ import { passwordResets, users } from '@project/database/schema';
 import type { PasswordReset, User } from '@project/database/types';
 
 import { DatabaseService } from '../../database/database.service';
+import {
+  claimDelivery,
+  type DeliveryClaim,
+  type DeliveryKind,
+  finishDispatch,
+} from './delivery-dispatch';
 
 @Injectable()
 export class PasswordResetsRepository extends BaseRepository<
@@ -19,6 +25,18 @@ export class PasswordResetsRepository extends BaseRepository<
 > {
   constructor(database: DatabaseService) {
     super(database.db, passwordResets);
+  }
+
+  claimDelivery(leaseMs: number, kind: DeliveryKind = 'password-reset') {
+    return claimDelivery(this.database, kind, leaseMs);
+  }
+  finishDispatch(
+    claim: DeliveryClaim,
+    sent: boolean,
+    retryMs: number,
+    kind: DeliveryKind = 'password-reset',
+  ) {
+    return finishDispatch(this.database, kind, claim, sent, retryMs);
   }
 
   findPendingDeliveries() {

@@ -7,6 +7,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import type { Permission } from '@project/contracts';
 
+import { trackGuard } from '../../infrastructure/lifecycle/track-guard';
 import { PermissionsService } from '../../permissions/permissions.service';
 import { REQUIRED_PERMISSIONS } from '../decorators/require-permissions.decorator';
 import type { AuthRequest } from '../interfaces/auth-request.interface';
@@ -23,7 +24,9 @@ export class PermissionsGuard implements CanActivate {
     );
     const { auth } = context.switchToHttp().getRequest<AuthRequest>();
     if (!required?.length || !auth) throw new ForbiddenException();
-    await this.permissions.require(auth.user, required);
+    await trackGuard(context, () =>
+      this.permissions.require(auth.user, required),
+    );
     return true;
   }
 }

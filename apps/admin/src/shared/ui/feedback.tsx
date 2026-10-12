@@ -2,11 +2,13 @@ import { ApiError } from '@/shared/api/api-error';
 export function ErrorNotice({ error }: { error: unknown }) {
   if (!error) return null;
   const message =
-    error instanceof ApiError && error.status === 429
-      ? 'Забагато спроб. Зачекайте хвилину та повторіть.'
-      : error instanceof Error
-        ? error.message
-        : 'Не вдалося виконати запит. Спробуйте ще раз.';
+    error instanceof ApiError && error.code === 'VERSION_CONFLICT'
+      ? 'Запис змінив інший користувач. Перевірте актуальні дані перед повторною дією.'
+      : error instanceof ApiError && error.status === 429
+        ? 'Забагато спроб. Зачекайте хвилину та повторіть.'
+        : error instanceof Error
+          ? error.message
+          : 'Не вдалося виконати запит. Спробуйте ще раз.';
   return (
     <div
       role="alert"

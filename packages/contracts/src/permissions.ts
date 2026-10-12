@@ -1,4 +1,5 @@
 import type { AuthUser } from './auth';
+import type { VersionedRequest } from './version';
 export const PERMISSIONS = [
   'subjects.read',
   'subjects.create',
@@ -15,10 +16,11 @@ export const PERMISSIONS = [
   'media.delete',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
-export interface SetPermissionsRequest {
+export interface SetPermissionsRequest extends VersionedRequest {
   permissions: Permission[];
 }
 export interface PermissionsResponse {
+  version: number;
   permissions: Permission[];
 }
 export interface CurrentUser extends AuthUser {

@@ -103,3 +103,90 @@ cover actual authorization, database transactions and file validation separately
 Subjects contain only a name and display order in the editor. Publication is a
 separate action. Subject descriptions are removed. The API generates stable slugs
 for subjects and teachers; the admin never sends or edits slugs.
+
+Catalog editors preserve drafts when the API returns `409 VERSION_CONFLICT`.
+Use “Зіставити з актуальними даними” to load the current record. Independent field
+changes are merged; conflicting fields require an explicit choice. Saving remains
+manual and checks the newly reviewed version again. Assignment lists use the same
+teacher version. Deleting a linked subject also advances that version, so an open
+teacher form or assignment editor must review the cascade before saving again.
+Assignment review refreshes the subject list without discarding the draft. Selected
+subjects outside the current page stay visible; a confirmed deletion offers an
+explicit removal action, while temporary lookup failures retain the selection.
+Choosing the local assignment list keeps other edits, including their sort order.
+Unsaved drafts remain in memory only while the editor is open.
+
+Subject and teacher deletion sends the version shown in the list. On a conflict,
+the admin cancels deletion and offers to open the latest record. A new attempt
+requires another confirmation and version check; deletion is never retried
+automatically.
+
+Manager grants have their own version, including when all rights are revoked.
+Conflicts preserve the selected checkboxes. Review compares the complete grant
+set and requires an explicit choice when both administrators changed it; individual
+privileges are never merged automatically. Saving stays manual, so a review cannot
+silently restore rights another administrator revoked. A failed review preserves
+the choices, and a further concurrent write triggers a new conflict.
+
+## End-to-end tests with the real API
+
+`pnpm test:e2e` from the repository root builds the API and shared packages,
+starts the actual API entry point on `127.0.0.1:3101`, builds the admin for that
+API, and serves the production SPA on `127.0.0.1:4174`. Both ports must be free.
+Install Chromium first with `pnpm --filter admin exec playwright install chromium`.
+The PostgreSQL and Redis services from `docker compose up -d` must be available;
+the runner reads their `POSTGRES_*` and `REDIS_*` settings from the root `.env`
+or environment. Only `localhost` and `127.0.0.1` are accepted for these services.
+
+The suite in `e2e-real/` does not intercept requests or replace backend providers.
+It covers login, HttpOnly cookies, refresh rotation, logout/revocation, manager
+permissions in both UI and API, granting/revoking permissions for active sessions,
+subject CRUD/publication, competing editors and
+409 draft preservation/merge, stale subject/teacher deletions, competing permission
+editors, image upload, teacher subject assignments and subject deletion conflicting
+with open teacher drafts or a pending teacher deletion.
+It uses real migrations in a fresh PostgreSQL schema, seeded test accounts,
+a unique Redis namespace for rate limits and BullMQ queues, and temporary local
+file storage. The runner removes only its own resources on normal shutdown,
+test failure or SIGINT/SIGTERM. A forced kill of the runner may leave resources
+whose names start with `admin_e2e_` or `edu-admin-e2e-`; inspect them before removal.
+SMTP is redirected to a local rejecting server, so this suite sends no email.
+The HTTP API runs in test mode; production TLS/Secure cookies and actual email
+delivery still require deployment checks.
+
+Each browser test gets a fresh context; catalog tests share an admin session
+created through the real login API to stay within the actual login rate limit.
+Each scenario sends a distinct test client IP; the API fixture trusts forwarding
+headers only from loopback. Additional manager contexts use their own client IP.
+This isolates scenarios without disabling guards, resetting counters or increasing
+production limits. Global limits and proxy spoofing are checked by the API suites.
+Tests run with one worker and no automatic retries. Existing `e2e/` mock-based
+browser regressions remain available through `pnpm --filter admin test:e2e`.
+Reports are in `apps/admin/playwright-report/{real,mocked}/`; failures retain
+traces and screenshots in `apps/admin/test-results/`. Use `pnpm --filter admin
+exec playwright show-report playwright-report/real` to view the real API report.
+
+## Continuous integration
+
+[GitHub Actions CI](../../.github/workflows/ci.yml) runs for pull requests,
+pushes to `develop`/`main`, and manual dispatch. It installs the locked dependency
+versions with Node 24 and pnpm 11.15.0, then checks:
+
+- Repository hygiene and ESLint (`pnpm lint`).
+- Types across all workspaces, API type tests and both browser suites (`pnpm typecheck`).
+- Production builds (`pnpm build`).
+- Every API integration suite against PostgreSQL 18 and Redis 8 (`pnpm --filter api test:integration`).
+- Admin unit tests, existing browser regressions and real API end-to-end tests.
+
+CI uses disposable service containers and test-only settings without repository
+secrets. Browser reports and failure traces are uploaded for seven days. The
+workflow provides the `Types, lint, build and tests` check; configure branch
+protection in GitHub if this check should be required before merging.
+For local API regression checks with the necessary builds, run `pnpm test:api`.
+
+
+The Users screen shows the latest invitation delivery status and a mail health
+summary, refreshed every 15 seconds. Pending requests recover automatically; an
+administrator can resend a failed invitation with the existing action. A sent
+status means acceptance by the SMTP server. The real-API browser suite covers
+these states, safe user-list fields and resend while mail is unavailable.

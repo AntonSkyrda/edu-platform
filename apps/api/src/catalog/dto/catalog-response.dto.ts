@@ -10,6 +10,7 @@ import { TeacherSubjectAssignmentDto } from './catalog-write.dto';
 class CatalogEntityDto {
   @ApiProperty({ format: 'uuid' }) id!: string;
   @ApiProperty() slug!: string;
+  @ApiProperty({ minimum: 1 }) version!: number;
   @ApiProperty({ enum: PUBLICATION_STATUSES }) status!: PublicationStatus;
   @ApiProperty({ format: 'date-time' }) createdAt!: string;
   @ApiProperty({ format: 'date-time' }) updatedAt!: string;
@@ -41,6 +42,7 @@ export class TeachersPageDto {
   @ApiProperty() hasMore!: boolean;
 }
 export class TeacherSubjectsResponseDto {
+  @ApiProperty({ minimum: 1 }) version!: number;
   @ApiProperty({ type: [TeacherSubjectAssignmentDto] })
   items!: TeacherSubjectAssignmentDto[];
 }

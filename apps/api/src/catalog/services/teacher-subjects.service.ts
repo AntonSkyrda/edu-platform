@@ -9,6 +9,14 @@ export class TeacherSubjectsService {
   list(teacherId: string, tx?: Transaction) {
     return this.repository.list(teacherId, tx);
   }
+  async lockSubjects(assignments: TeacherSubjectAssignment[], tx: Transaction) {
+    const ids = [...new Set(assignments.map((item) => item.subjectId))];
+    const rows = await this.repository.lockSubjects(ids, tx);
+    return rows.length === ids.length;
+  }
+  prepareSubjectDeletion(subjectId: string, tx: Transaction) {
+    return this.repository.bumpTeachersForSubjectDeletion(subjectId, tx);
+  }
   replace(
     teacherId: string,
     assignments: TeacherSubjectAssignment[],
