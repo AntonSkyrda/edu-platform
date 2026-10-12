@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.node.json",
+  "compilerOptions": {
+    "strict": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2023", "DOM"]
+  },
+  "include": [
+    "playwright*.config.ts",
+    "vitest.config.ts",
+    "e2e/**/*.ts",
+    "e2e-real/**/*.ts"
+  ]
+}

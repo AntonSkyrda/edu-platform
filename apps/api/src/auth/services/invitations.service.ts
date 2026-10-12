@@ -5,6 +5,10 @@ import type { Transaction } from '@project/database';
 
 import { hashToken } from '../../common/helpers/hash-token.helper';
 import { EnvironmentService } from '../../config/environment.service';
+import type {
+  DeliveryClaim,
+  DeliveryKind,
+} from '../repositories/delivery-dispatch';
 import { InvitationsRepository } from '../repositories/invitations.repository';
 
 @Injectable()
@@ -36,6 +40,33 @@ export class InvitationsService {
       .digest('hex');
   }
 
+  claimDelivery(leaseMs: number, kind?: DeliveryKind) {
+    return this.repository.claimDelivery(leaseMs, kind);
+  }
+  finishDispatch(
+    claim: DeliveryClaim,
+    sent: boolean,
+    retryMs: number,
+    kind?: DeliveryKind,
+  ) {
+    return this.repository.finishDispatch(claim, sent, retryMs, kind);
+  }
+
+  async latestDeliveries(userIds: string[], tx: Transaction) {
+    return new Map(
+      (await this.repository.latestDeliveries(userIds, tx)).map(
+        ({ userId, ...row }) => [
+          userId,
+          {
+            ...row,
+            enqueuedAt: row.enqueuedAt?.toISOString() ?? null,
+            deliveredAt: row.deliveredAt?.toISOString() ?? null,
+            expiresAt: row.expiresAt.toISOString(),
+          },
+        ],
+      ),
+    );
+  }
   pendingDeliveries() {
     return this.repository.findPendingDeliveries();
   }

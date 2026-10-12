@@ -3,7 +3,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import { usePermissions } from '@/features/auth';
+import { ApiError } from '@/shared/api/api-error';
+import { isVersionConflict } from '@/shared/lib/use-edit-conflict';
 import { Button } from '@/shared/ui/button';
+import { DeleteConflictNotice } from '@/shared/ui/delete-conflict-notice';
 import { ErrorNotice, SuccessNotice } from '@/shared/ui/feedback';
 import { Pagination } from '@/shared/ui/pagination';
 
@@ -16,6 +19,9 @@ export function SubjectsPage() {
   const [page, setPage] = useState(0);
   const [editing, setEditing] = useState<SubjectResponse | 'new' | null>(null);
   const [notice, setNotice] = useState('');
+  const [deleteConflict, setDeleteConflict] = useState<SubjectResponse | null>(
+    null,
+  );
   const records = useQuery({
     queryKey: ['subjects', page],
     queryFn: ({ signal }) => subjectsApi.list(page, signal),
@@ -30,13 +36,23 @@ export function SubjectsPage() {
       operation: 'publish' | 'delete';
     }) => {
       if (operation === 'delete') {
-        await subjectsApi.remove(item.id);
+        await subjectsApi.remove(item.id, item.version);
         return null;
       }
       return subjectsApi.publish(
         item.id,
         item.status === 'DRAFT' ? 'PUBLISHED' : 'DRAFT',
+        item.version,
       );
+    },
+    onError: (error, variables) => {
+      if (isVersionConflict(error) && variables.operation === 'delete')
+        setDeleteConflict(variables.item);
+      if (
+        isVersionConflict(error) ||
+        (error instanceof ApiError && error.status === 404)
+      )
+        void client.invalidateQueries({ queryKey: ['subjects'] });
     },
     onSuccess: (updated, variables) => {
       setEditing((current) =>
@@ -50,6 +66,10 @@ export function SubjectsPage() {
           : 'Статус оновлено.',
       );
       void client.invalidateQueries({ queryKey: ['subjects'] });
+      if (variables.operation === 'delete') {
+        void client.invalidateQueries({ queryKey: ['teachers'] });
+        void client.invalidateQueries({ queryKey: ['teacher-subjects'] });
+      }
       if (
         variables.operation === 'delete' &&
         records.data?.items.length === 1 &&
@@ -85,7 +105,7 @@ export function SubjectsPage() {
         </div>
         {can('subjects.create') && (
           <Button
-            disabled={editing !== null}
+            disabled={editing !== null || deleteConflict !== null}
             onClick={() => {
               setEditing('new');
               setNotice('');
@@ -96,7 +116,29 @@ export function SubjectsPage() {
         )}
       </header>
       {notice && <SuccessNotice>{notice}</SuccessNotice>}
-      <ErrorNotice error={action.error} />
+      <ErrorNotice
+        error={
+          deleteConflict && isVersionConflict(action.error)
+            ? undefined
+            : action.error
+        }
+      />
+      {deleteConflict && (
+        <DeleteConflictNotice
+          key={deleteConflict.id}
+          readLatest={() => subjectsApi.get(deleteConflict.id)}
+          onReview={(latest) => {
+            setEditing(latest);
+            setDeleteConflict(null);
+            action.reset();
+            void client.invalidateQueries({ queryKey: ['subjects'] });
+          }}
+          onCancel={() => {
+            setDeleteConflict(null);
+            action.reset();
+          }}
+        />
+      )}
       {editing && (
         <SubjectForm
           key={editing === 'new' ? 'new' : editing.id + editing.updatedAt}
@@ -158,7 +200,11 @@ export function SubjectsPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            disabled={editing !== null || action.isPending}
+                            disabled={
+                              editing !== null ||
+                              action.isPending ||
+                              deleteConflict !== null
+                            }
                             onClick={() => {
                               setEditing(item);
                               setNotice('');
@@ -170,7 +216,11 @@ export function SubjectsPage() {
                             <Button
                               variant="outline"
                               size="sm"
-                              disabled={action.isPending || editing !== null}
+                              disabled={
+                                action.isPending ||
+                                editing !== null ||
+                                deleteConflict !== null
+                              }
                               onClick={() => perform(item, 'publish')}
                             >
                               {item.status === 'PUBLISHED'
@@ -182,7 +232,11 @@ export function SubjectsPage() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              disabled={action.isPending || editing !== null}
+                              disabled={
+                                action.isPending ||
+                                editing !== null ||
+                                deleteConflict !== null
+                              }
                               onClick={() => perform(item, 'delete')}
                             >
                               Видалити

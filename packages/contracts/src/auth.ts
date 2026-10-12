@@ -1,3 +1,4 @@
+import type { AdminUser } from './delivery';
 export const USER_ROLES = ['ADMIN', 'MANAGER', 'TEACHER', 'STUDENT'] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 export const INVITABLE_ROLES = ['MANAGER', 'TEACHER', 'STUDENT'] as const;
@@ -40,6 +41,6 @@ export interface ResetPasswordRequest {
 }
 
 export interface UsersPage {
-  items: AuthUser[];
+  items: AdminUser[];
   hasMore: boolean;
 }

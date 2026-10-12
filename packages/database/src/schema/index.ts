@@ -1,6 +1,6 @@
 export { userRoleEnum, userStatusEnum, users } from './users';
 export { userInvitations, userSessions } from './auth';
-export { passwordResets } from './auth';
+export { passwordResets, mailWorkerHeartbeats } from './auth';
 export {
   subjects,
   teachers,

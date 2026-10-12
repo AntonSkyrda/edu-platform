@@ -17,6 +17,8 @@ import {
 import { CatalogService } from '../services/catalog.service';
 @Public()
 @ApiTags('Public catalog')
+@ApiErrorEnvelope(429, 'Rate limit exceeded; retry after the indicated delay')
+@ApiErrorEnvelope(503, 'Rate limiting temporarily unavailable')
 @ApiErrorEnvelope(404, 'Published record not found')
 @Controller('catalog')
 export class CatalogController {

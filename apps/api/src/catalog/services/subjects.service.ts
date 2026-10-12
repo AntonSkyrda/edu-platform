@@ -11,6 +11,7 @@ import type {
 } from '@project/contracts';
 import type { Subject } from '@project/database/types';
 
+import { checkRecordVersion } from '../../common/helpers/check-record-version';
 import { DatabaseService } from '../../database/database.service';
 import { PermissionsService } from '../../permissions/permissions.service';
 import { throwCatalogWriteError } from '../helpers/catalog-write-error';
@@ -18,6 +19,7 @@ import { createWithCatalogSlug } from '../helpers/create-catalog-slug';
 import type { GetCatalogEntityOptions } from '../interfaces/get-catalog-entity-options.interface';
 import { toSubject } from '../mappers/catalog.mapper';
 import { SubjectsRepository } from '../repositories/subjects.repository';
+import { TeacherSubjectsService } from './teacher-subjects.service';
 
 @Injectable()
 export class SubjectsService {
@@ -25,6 +27,7 @@ export class SubjectsService {
     private readonly repository: SubjectsRepository,
     private readonly database: DatabaseService,
     private readonly permissions: PermissionsService,
+    private readonly assignments: TeacherSubjectsService,
   ) {}
   async getByIdOrThrow(
     id: string,
@@ -73,7 +76,8 @@ export class SubjectsService {
     data: UpdateSubjectRequest & { status?: PublicationStatus },
     actor: AuthUser,
   ) {
-    if (!Object.keys(data).length)
+    const { expectedVersion, ...changes } = data;
+    if (!Object.keys(changes).length)
       throw new BadRequestException('No fields to update');
     try {
       return await this.database.db.transaction(async (tx) => {
@@ -81,10 +85,15 @@ export class SubjectsService {
           transaction: tx,
           lock: 'update',
         });
-        if (current.status === 'PUBLISHED' || data.status !== undefined) {
+        if (current.status === 'PUBLISHED' || changes.status !== undefined) {
           await this.permissions.require(actor, ['subjects.publish'], tx);
         }
-        const updated = await this.repository.update(id, data, tx);
+        checkRecordVersion(current.version, expectedVersion);
+        const updated = await this.repository.update(
+          id,
+          { ...changes, version: current.version + 1 },
+          tx,
+        );
         if (!updated) throw new NotFoundException('Subject not found');
         return toSubject(updated);
       });
@@ -95,12 +104,24 @@ export class SubjectsService {
   update(id: string, data: UpdateSubjectRequest, actor: AuthUser) {
     return this.write(id, data, actor);
   }
-  setStatus(id: string, status: PublicationStatus, actor: AuthUser) {
-    return this.write(id, { status }, actor);
+  setStatus(
+    id: string,
+    status: PublicationStatus,
+    expectedVersion: number,
+    actor: AuthUser,
+  ) {
+    return this.write(id, { status, expectedVersion }, actor);
   }
-  async delete(id: string) {
-    if (!(await this.repository.delete(id)))
-      throw new NotFoundException('Subject not found');
+  async delete(id: string, expectedVersion: number) {
+    await this.database.db.transaction(async (tx) => {
+      const current = await this.getByIdOrThrow(id, {
+        transaction: tx,
+        lock: 'update',
+      });
+      checkRecordVersion(current.version, expectedVersion);
+      await this.assignments.prepareSubjectDeletion(id, tx);
+      await this.repository.delete(id, tx);
+    });
     return { message: 'Subject deleted' };
   }
 }

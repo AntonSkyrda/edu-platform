@@ -22,6 +22,7 @@ export const subjects = pgTable(
   'subjects',
   {
     ...baseColumns(),
+    version: integer('version').notNull().default(1),
     name: varchar('name', { length: 100 }).notNull(),
     slug: varchar('slug', { length: 150 }).notNull().unique(),
     sortOrder: integer('sort_order').notNull().default(0),
@@ -36,6 +37,7 @@ export const teachers = pgTable(
   'teachers',
   {
     ...baseColumns(),
+    version: integer('version').notNull().default(1),
     firstName: varchar('first_name', { length: 100 }).notNull(),
     lastName: varchar('last_name', { length: 100 }).notNull(),
     slug: varchar('slug', { length: 200 }).notNull().unique(),

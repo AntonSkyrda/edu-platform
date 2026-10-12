@@ -3,7 +3,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import { usePermissions } from '@/features/auth';
+import { ApiError } from '@/shared/api/api-error';
+import { isVersionConflict } from '@/shared/lib/use-edit-conflict';
 import { Button } from '@/shared/ui/button';
+import { DeleteConflictNotice } from '@/shared/ui/delete-conflict-notice';
 import { ErrorNotice, SuccessNotice } from '@/shared/ui/feedback';
 import { Pagination } from '@/shared/ui/pagination';
 
@@ -16,6 +19,9 @@ export function TeachersPage() {
   const [page, setPage] = useState(0);
   const [editing, setEditing] = useState<TeacherResponse | 'new' | null>(null);
   const [notice, setNotice] = useState('');
+  const [deleteConflict, setDeleteConflict] = useState<TeacherResponse | null>(
+    null,
+  );
   const records = useQuery({
     queryKey: ['teachers', page],
     queryFn: ({ signal }) => teachersApi.list(page, signal),
@@ -30,13 +36,23 @@ export function TeachersPage() {
       operation: 'publish' | 'delete';
     }) => {
       if (operation === 'delete') {
-        await teachersApi.remove(item.id);
+        await teachersApi.remove(item.id, item.version);
         return null;
       }
       return teachersApi.publish(
         item.id,
         item.status === 'DRAFT' ? 'PUBLISHED' : 'DRAFT',
+        item.version,
       );
+    },
+    onError: (error, variables) => {
+      if (isVersionConflict(error) && variables.operation === 'delete')
+        setDeleteConflict(variables.item);
+      if (
+        isVersionConflict(error) ||
+        (error instanceof ApiError && error.status === 404)
+      )
+        void client.invalidateQueries({ queryKey: ['teachers'] });
     },
     onSuccess: (updated, variables) => {
       setEditing((current) =>
@@ -85,7 +101,7 @@ export function TeachersPage() {
         </div>
         {can('teachers.create') && (
           <Button
-            disabled={editing !== null}
+            disabled={editing !== null || deleteConflict !== null}
             onClick={() => {
               setEditing('new');
               setNotice('');
@@ -96,7 +112,29 @@ export function TeachersPage() {
         )}
       </header>
       {notice && <SuccessNotice>{notice}</SuccessNotice>}
-      <ErrorNotice error={action.error} />
+      <ErrorNotice
+        error={
+          deleteConflict && isVersionConflict(action.error)
+            ? undefined
+            : action.error
+        }
+      />
+      {deleteConflict && (
+        <DeleteConflictNotice
+          key={deleteConflict.id}
+          readLatest={() => teachersApi.get(deleteConflict.id)}
+          onReview={(latest) => {
+            setEditing(latest);
+            setDeleteConflict(null);
+            action.reset();
+            void client.invalidateQueries({ queryKey: ['teachers'] });
+          }}
+          onCancel={() => {
+            setDeleteConflict(null);
+            action.reset();
+          }}
+        />
+      )}
       {editing && (
         <TeacherForm
           key={editing === 'new' ? 'new' : editing.id + editing.updatedAt}
@@ -162,7 +200,11 @@ export function TeachersPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            disabled={editing !== null || action.isPending}
+                            disabled={
+                              editing !== null ||
+                              action.isPending ||
+                              deleteConflict !== null
+                            }
                             onClick={() => {
                               setEditing(item);
                               setNotice('');
@@ -174,7 +216,11 @@ export function TeachersPage() {
                             <Button
                               variant="outline"
                               size="sm"
-                              disabled={action.isPending || editing !== null}
+                              disabled={
+                                action.isPending ||
+                                editing !== null ||
+                                deleteConflict !== null
+                              }
                               onClick={() => perform(item, 'publish')}
                             >
                               {item.status === 'PUBLISHED'
@@ -186,7 +232,11 @@ export function TeachersPage() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              disabled={action.isPending || editing !== null}
+                              disabled={
+                                action.isPending ||
+                                editing !== null ||
+                                deleteConflict !== null
+                              }
                               onClick={() => perform(item, 'delete')}
                             >
                               Видалити

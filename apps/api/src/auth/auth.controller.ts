@@ -11,7 +11,6 @@ import {
   Query,
   Req,
   Res,
-  UseGuards,
 } from '@nestjs/common';
 import {
   ApiCookieAuth,
@@ -19,7 +18,7 @@ import {
   ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { parseCookie } from 'cookie';
 import type { Request, Response } from 'express';
 
@@ -55,8 +54,8 @@ import { PasswordRecoveryService } from './services/password-recovery.service';
 @ApiErrorEnvelope(401, 'Missing, invalid, expired or revoked credentials')
 @ApiErrorEnvelope(403, 'Insufficient permissions or untrusted request origin')
 @ApiErrorEnvelope(429, 'Rate limit exceeded; retry after the indicated delay')
+@ApiErrorEnvelope(503, 'Rate limiting temporarily unavailable')
 @Controller('auth')
-@UseGuards(ThrottlerGuard)
 @Throttle({ default: { limit: 20, ttl: 60000 } })
 export class AuthController {
   constructor(
@@ -76,6 +75,7 @@ export class AuthController {
   ) {
     return this.auth.getPermissions(request.auth, userId);
   }
+  @ApiErrorEnvelope(409, 'Permissions version conflict')
   @Put('users/:userId/permissions')
   @ApiCookieAuth('accessCookie')
   @ApiOperation({
@@ -88,7 +88,12 @@ export class AuthController {
     @Param('userId', new ParseUUIDPipe()) userId: string,
     @Body() data: SetPermissionsDto,
   ) {
-    return this.auth.setPermissions(request.auth, userId, data.permissions);
+    return this.auth.setPermissions(
+      request.auth,
+      userId,
+      data.permissions,
+      data.expectedVersion,
+    );
   }
   private cookieOptions(path: string) {
     return {
@@ -120,7 +125,7 @@ export class AuthController {
   @ApiOperation({
     summary: 'Invite a user (ADMIN only)',
     description:
-      'Creates an INVITED user and queues an email. Success does not guarantee email delivery.',
+      'Creates an INVITED user and persists a pending email for background delivery. Success does not guarantee email delivery.',
   })
   @ApiEnvelope(AuthUserDto, 201)
   @ApiErrorEnvelope(409, 'Email already exists')
@@ -133,7 +138,7 @@ export class AuthController {
   @ApiOperation({
     summary: 'Resend invitation (ADMIN only)',
     description:
-      'Revokes the previous invitation token and queues a new email.',
+      'Revokes the previous invitation token and persists a pending email for background delivery.',
   })
   @ApiParam({ name: 'userId', format: 'uuid' })
   @ApiEnvelope(AuthUserDto)

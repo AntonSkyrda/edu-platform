@@ -1,38 +1,22 @@
-import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Logger } from 'nestjs-pino';
 
 import { AppModule } from './app.module';
-import { AllExceptionFilter } from './common/filters/all-exception.filter';
-import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { EnvironmentService } from './config/environment.service';
-import { setupSwagger } from './config/swagger.config';
+import { configureHttpApp } from './config/http.config';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bufferLogs: true,
+  });
 
   app.useLogger(app.get(Logger));
   app.enableShutdownHooks();
 
   const environmentService = app.get(EnvironmentService);
 
-  app.enableCors({
-    origin: environmentService.frontendOrigin,
-    credentials: true,
-    exposedHeaders: ['X-Request-Id'],
-  });
-
-  app.useGlobalInterceptors(new ResponseInterceptor());
-  app.useGlobalFilters(new AllExceptionFilter());
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
-
-  if (!environmentService.isProduction) setupSwagger(app);
+  configureHttpApp(app);
 
   await app.listen(environmentService.AppPort);
 }

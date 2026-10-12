@@ -27,6 +27,7 @@ export const API_ENDPOINTS = {
     content: (id: string) => `/admin/media/${encodeURIComponent(id)}/content`,
   },
   users: {
+    delivery: '/admin/delivery',
     list: '/auth/users',
     permissions: (id: string) =>
       `/auth/users/${encodeURIComponent(id)}/permissions`,

@@ -64,6 +64,34 @@
       "when": 1791679873065,
       "tag": "0008_old_post",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791745148960,
+      "tag": "0009_catalog_versions",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791787678079,
+      "tag": "0010_permissions_version",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791822604205,
+      "tag": "0011_delivery_dispatch_leases",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791822893716,
+      "tag": "0012_mail_worker_heartbeats",
+      "breakpoints": true
     }
   ]
 }

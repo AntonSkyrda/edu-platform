@@ -54,8 +54,10 @@ export class AuthService {
       throw new ForbiddenException();
   }
 
-  private async deliver(user: User, invitationId: string) {
-    await this.delivery.enqueue(invitationId);
+  private deliver(user: User) {
+    // The invitation is committed before this kick. PostgreSQL owns pending
+    // deliveries; neither Redis availability nor queue latency gates HTTP.
+    void this.delivery.recover();
     return toAuthUser(user);
   }
 
@@ -75,18 +77,27 @@ export class AuthService {
     actor: AuthContext,
     userId: string,
     permissions: Permission[],
+    expectedVersion: number,
   ) {
     return this.database.db.transaction(async (tx) => {
       await this.checkAdmin(tx, actor);
-      return this.permissions.replace(userId, permissions, tx);
+      return this.permissions.replace(userId, permissions, expectedVersion, tx);
     });
   }
   async listUsers(actor: AuthContext, limit: number, offset: number) {
     return this.database.db.transaction(async (tx) => {
       await this.checkAdmin(tx, actor);
       const users = await this.users.findMany({ limit: limit + 1, offset }, tx);
+      const page = users.slice(0, limit);
+      const deliveries = await this.invitations.latestDeliveries(
+        page.map((user) => user.id),
+        tx,
+      );
       return {
-        items: users.slice(0, limit).map(toAuthUser),
+        items: page.map((user) => ({
+          ...toAuthUser(user),
+          invitation: deliveries.get(user.id) ?? null,
+        })),
         hasMore: users.length > limit,
       };
     });
@@ -101,7 +112,7 @@ export class AuthService {
       );
       return { user, ...(await this.invitations.issue(user.id, tx)) };
     });
-    return this.deliver(result.user, result.invitation.id);
+    return this.deliver(result.user);
   }
 
   async resend(actor: AuthContext, userId: string) {
@@ -117,7 +128,7 @@ export class AuthService {
         );
       return { user, ...(await this.invitations.issue(user.id, tx)) };
     });
-    return this.deliver(result.user, result.invitation.id);
+    return this.deliver(result.user);
   }
 
   async acceptInvitation(rawToken: string, password: string) {

@@ -9,12 +9,13 @@ import {
 import { Injectable, type OnModuleDestroy } from '@nestjs/common';
 
 import { EnvironmentService } from '../../../config/environment.service';
+import { LifecycleService } from '../../lifecycle/lifecycle.service';
 import { validateObjectKey } from '../helpers/validate-object-key';
 import type { StorageAdapter } from '../interfaces/storage-adapter.interface';
 @Injectable()
 export class S3StorageAdapter implements StorageAdapter, OnModuleDestroy {
   private client?: S3Client;
-  constructor(private readonly environment: EnvironmentService) {}
+  constructor(private readonly environment: EnvironmentService, private readonly lifecycle: LifecycleService) {}
   private getClient() {
     return (this.client ??= new S3Client({
       region: this.environment.s3Region,
@@ -58,7 +59,8 @@ export class S3StorageAdapter implements StorageAdapter, OnModuleDestroy {
       { abortSignal: AbortSignal.timeout(30000) },
     );
   }
-  onModuleDestroy() {
+  async onModuleDestroy() {
+    await this.lifecycle?.drain();
     this.client?.destroy();
   }
 }

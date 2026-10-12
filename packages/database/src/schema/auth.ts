@@ -23,6 +23,12 @@ export const userInvitations = pgTable(
     })
       .notNull()
       .default('pending'),
+    dispatchLeaseId: uuid('dispatch_lease_id'),
+    nextDispatchAt: timestamp('next_dispatch_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    dispatchAttempts: integer('dispatch_attempts').notNull().default(0),
+    lastEnqueuedAt: timestamp('last_enqueued_at', { withTimezone: true }),
     deliveryAttempts: integer('delivery_attempts').notNull().default(0),
     deliveryError: text('delivery_error'),
     deliveredAt: timestamp('delivered_at', { withTimezone: true }),
@@ -30,7 +36,14 @@ export const userInvitations = pgTable(
     usedAt: timestamp('used_at', { withTimezone: true }),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
   },
-  (table) => [index('user_invitations_user_id_idx').on(table.userId)],
+  (table) => [
+    index('user_invitations_user_id_idx').on(table.userId),
+    index('invitations_dispatch_idx').on(
+      table.deliveryStatus,
+      table.nextDispatchAt,
+      table.id,
+    ),
+  ],
 );
 
 export const userSessions = pgTable(
@@ -60,6 +73,12 @@ export const passwordResets = pgTable(
     })
       .notNull()
       .default('pending'),
+    dispatchLeaseId: uuid('dispatch_lease_id'),
+    nextDispatchAt: timestamp('next_dispatch_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    dispatchAttempts: integer('dispatch_attempts').notNull().default(0),
+    lastEnqueuedAt: timestamp('last_enqueued_at', { withTimezone: true }),
     deliveryAttempts: integer('delivery_attempts').notNull().default(0),
     deliveryError: text('delivery_error'),
     deliveredAt: timestamp('delivered_at', { withTimezone: true }),
@@ -68,11 +87,33 @@ export const passwordResets = pgTable(
     notificationStatus: text('notification_status', {
       enum: ['pending', 'sent', 'failed'],
     }),
+    notificationDispatchLeaseId: uuid('notification_dispatch_lease_id'),
+    notificationNextDispatchAt: timestamp('notification_next_dispatch_at', {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+    notificationDispatchAttempts: integer('notification_dispatch_attempts')
+      .notNull()
+      .default(0),
+    notificationLastEnqueuedAt: timestamp('notification_last_enqueued_at', {
+      withTimezone: true,
+    }),
     notificationError: text('notification_error'),
     notificationAttempts: integer('notification_attempts').notNull().default(0),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
   },
   (table) => [
+    index('resets_dispatch_idx').on(
+      table.deliveryStatus,
+      table.nextDispatchAt,
+      table.id,
+    ),
+    index('notifications_dispatch_idx').on(
+      table.notificationStatus,
+      table.notificationNextDispatchAt,
+      table.id,
+    ),
     index('password_resets_user_id_idx').on(table.userId),
     index('password_resets_delivery_idx').on(
       table.deliveryStatus,
@@ -84,3 +125,11 @@ export const passwordResets = pgTable(
     ),
   ],
 );
+
+export const mailWorkerHeartbeats = pgTable('mail_worker_heartbeats', {
+  id: uuid('id').primaryKey(),
+  seenAt: timestamp('seen_at', { withTimezone: true }).notNull().defaultNow(),
+  lastCompletedAt: timestamp('last_completed_at', { withTimezone: true }),
+  lastFailedAt: timestamp('last_failed_at', { withTimezone: true }),
+  activeJobs: integer('active_jobs').notNull().default(0),
+});

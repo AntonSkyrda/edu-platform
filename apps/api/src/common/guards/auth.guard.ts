@@ -9,6 +9,7 @@ import { parseCookie } from 'cookie';
 
 import { AuthService } from '../../auth/auth.service';
 import { ACCESS_COOKIE } from '../../auth/constants/auth.constants';
+import { trackGuard } from '../../infrastructure/lifecycle/track-guard';
 import { PUBLIC_ROUTE_KEY } from '../decorators/public.decorator';
 import type { AuthRequest } from '../interfaces/auth-request.interface';
 
@@ -29,7 +30,9 @@ export class AuthGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<AuthRequest>();
     const token = parseCookie(request.headers.cookie ?? '')[ACCESS_COOKIE];
     if (!token) throw new UnauthorizedException();
-    request.auth = await this.auth.authenticate(token);
+    request.auth = await trackGuard(context, () =>
+      this.auth.authenticate(token),
+    );
     return true;
   }
 }
