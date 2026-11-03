@@ -4,7 +4,10 @@ import {
   Injectable,
   type NestInterceptor,
 } from '@nestjs/common';
-import type { Request, Response } from 'express';
+import type {
+  NodeRequest as Request,
+  NodeResponse as Response,
+} from '@nestjs/platform-node';
 import { defer, finalize, from, switchMap } from 'rxjs';
 
 import { MediaAdmissionService } from './services/media-admission.service';

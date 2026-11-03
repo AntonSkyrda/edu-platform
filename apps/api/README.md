@@ -1,9 +1,12 @@
 # Edu Platform API
 
-NestJS backend for an invitation-only platform. PostgreSQL/Drizzle owns users,
+NestJS 12 backend using the native `@nestjs/platform-node` HTTP adapter for an invitation-only platform. PostgreSQL/Drizzle owns users,
 invitations, password resets and sessions; BullMQ/Redis delivers auth emails.
 
 ## Local setup
+
+Use Node.js 24.18+ (24.x) and the repository-pinned pnpm version. The workspace
+uses TypeScript 6.0.x; the API and shared packages retain CommonJS output.
 
 Run from the repository root:
 
@@ -24,6 +27,29 @@ The frontend and API should be hosted on the same site for SameSite=Strict cooki
 There is no public registration or API for creating ADMIN accounts. Create the
 initial administrator with `pnpm admin:create` as documented below. Assign manager
 permissions through the ADMIN-only endpoints documented under Manager permissions.
+
+## Native HTTP adapter
+
+Production and integration tests share `src/config/http-adapter.ts`. Always pass
+that adapter to `NestFactory.create()` or `createNestApplication()`; Nest's default
+adapter is still Express. File upload interceptors and `MulterModule` come from
+`@nestjs/platform-node`.
+
+The adapter accepts route parameters up to 200 characters, matching the longest
+catalog slug. Proxy trust is configured when the adapter is created, using the
+validated IP/CIDR allowlist from `TRUSTED_PROXIES`; an empty list trusts no proxy.
+The entry point waits for environment-file loading before reading that setting.
+
+Paths are case-sensitive and static routes take precedence over parameter routes.
+JSON bodies containing prototype-poisoning keys are rejected with 400. Existing
+response envelopes, cookies, CORS and file streams are retained. The adapter's
+`beforeClose()` hook drains active requests and workers before dependency teardown;
+a missed deadline propagates to Nest's signal handler and exits with failure.
+This is necessary because Nest 12 logs and suppresses provider shutdown-hook errors.
+`test/http-adapter.integration.cjs` covers transport behavior and Swagger assets;
+the catalog suite also requests real 150/200-character slugs. All existing auth,
+media, proxy/rate-limit, health, queue and shutdown integration suites use the same
+native adapter.
 
 ## Authentication
 
@@ -278,7 +304,7 @@ by an explicit resend. No real email is sent. CI includes these tests through
 Pino is wired through `infrastructure/logger`; options live in `config/logger.config.ts`.
 Set LOG_LEVEL (default info). Development uses pino-pretty; production/test write
 JSON to stdout. No external logging service is required. Container/platform log
-collectors can consume stdout later. Run on Node.js 22.12+ (nestjs-pino requirement).
+collectors can consume stdout later. Run on the workspace Node.js 24.18+ (24.x) runtime.
 
 Each HTTP request receives a server-generated X-Request-Id response header. Logs
 include requestId, service, environment, method, path, response status and duration.

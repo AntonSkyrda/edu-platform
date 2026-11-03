@@ -5,6 +5,8 @@ const { resolve } = require('node:path');
 const { test } = require('node:test');
 const { setTimeout: delay } = require('node:timers/promises');
 
+const { createHttpAdapter } = require('../dist/config/http-adapter');
+
 require('reflect-metadata');
 const databaseRequire = createRequire(
   resolve('../../packages/database/package.json'),
@@ -64,7 +66,7 @@ async function createApp(environment, overrides = {}) {
       .overrideProvider(RedisThrottlerStorage)
       .useValue(overrides.redis);
   const module = await builder.compile();
-  const app = module.createNestApplication({ logger: false });
+  const app = module.createNestApplication(createHttpAdapter(), { logger: false });
   let authCalls = 0;
   app.useGlobalGuards(
     new CsrfGuard(environment),

@@ -1,19 +1,23 @@
 import { ValidationPipe } from '@nestjs/common';
-import type { NestExpressApplication } from '@nestjs/platform-express';
+import type { NestNodeApplication } from '@nestjs/platform-node';
 
 import { AllExceptionFilter } from '../common/filters/all-exception.filter';
 import { ResponseInterceptor } from '../common/interceptors/response.interceptor';
 import { LifecycleService } from '../infrastructure/lifecycle/lifecycle.service';
 import { RequestLifecycleInterceptor } from '../infrastructure/lifecycle/request-lifecycle.interceptor';
 import { EnvironmentService } from './environment.service';
-import { configureTrustedProxies } from './proxy.config';
+import { ApplicationHttpAdapter } from './http-adapter';
 import { setupSwagger } from './swagger.config';
 
-export function configureHttpApp(app: NestExpressApplication): void {
+export function configureHttpApp(app: NestNodeApplication): void {
   const environmentService = app.get(EnvironmentService);
 
-  configureTrustedProxies(app, environmentService.trustedProxies);
-  app.use(app.get(LifecycleService).middleware);
+  const lifecycle = app.get(LifecycleService);
+  const adapter = app.getHttpAdapter();
+  if (!(adapter instanceof ApplicationHttpAdapter))
+    throw new Error('Configure the application with createHttpAdapter()');
+  adapter.setDrainHandler(() => lifecycle.drain());
+  app.use(lifecycle.middleware);
   app.useGlobalInterceptors(new RequestLifecycleInterceptor());
 
   app.enableCors({

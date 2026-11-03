@@ -3,6 +3,8 @@ const { Writable } = require('node:stream');
 const { test } = require('node:test');
 const { setTimeout } = require('node:timers/promises');
 
+const { createHttpAdapter } = require('../dist/config/http-adapter');
+
 require('reflect-metadata');
 const {
   Controller,
@@ -89,7 +91,7 @@ test('Pino correlates HTTP and jobs, records 500s and omits sensitive data', asy
     .overrideProvider(PARAMS_PROVIDER_TOKEN)
     .useValue({ pinoHttp: [options, stream] })
     .compile();
-  const app = module.createNestApplication({ bufferLogs: true });
+  const app = module.createNestApplication(createHttpAdapter(), { bufferLogs: true });
   app.useLogger(app.get(Logger));
   app.useGlobalFilters(new AllExceptionFilter());
   try {

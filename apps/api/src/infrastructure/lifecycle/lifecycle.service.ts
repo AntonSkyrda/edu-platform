@@ -1,5 +1,8 @@
 import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
-import type { NextFunction, Request, Response } from 'express';
+import type {
+  NodeRequest as Request,
+  NodeResponse as Response,
+} from '@nestjs/platform-node';
 
 import { EnvironmentService } from '../../config/environment.service';
 
@@ -23,7 +26,7 @@ export class LifecycleService implements OnModuleDestroy {
   readonly middleware = (
     request: Request,
     response: Response,
-    next: NextFunction,
+    next: () => void,
   ): void => {
     if (this.isDraining && request.path !== '/health/live') {
       response.setHeader('Connection', 'close');
@@ -93,8 +96,8 @@ export class LifecycleService implements OnModuleDestroy {
       ]);
       this.logger.log({ event: 'shutdown.drained' });
     } catch (error) {
-      // Do not close dependencies beneath still-running work. Nest's signal
-      // handler exits with failure; PostgreSQL rolls back and durable jobs recover.
+      // The HTTP adapter propagates this failure before provider teardown. Nest's
+      // signal handler exits; PostgreSQL rolls back and durable jobs recover.
       this.logger.error({
         event: 'shutdown.deadline_exceeded',
         activeRequests: this.activeRequests,

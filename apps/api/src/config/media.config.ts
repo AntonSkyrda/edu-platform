@@ -1,4 +1,4 @@
-import type { MulterModuleOptions } from '@nestjs/platform-express';
+import type { MulterModuleOptions } from '@nestjs/platform-node';
 
 import type { EnvironmentService } from './environment.service';
 export function createMediaUploadOptions(

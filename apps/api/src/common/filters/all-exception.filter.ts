@@ -6,8 +6,8 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import type { NodeResponse as Response } from '@nestjs/platform-node';
 import type { ApiResponse } from '@project/contracts';
-import type { Response } from 'express';
 
 import { isDatabaseTimeout } from '../helpers/database-timeout';
 

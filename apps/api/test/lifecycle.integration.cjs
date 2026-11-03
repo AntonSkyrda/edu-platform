@@ -2,6 +2,8 @@ const assert = require('node:assert/strict');
 const { request } = require('node:http');
 const { test } = require('node:test');
 const { setTimeout: delay } = require('node:timers/promises');
+
+const { createHttpAdapter } = require('../dist/config/http-adapter');
 require('reflect-metadata');
 const { Controller, Get, UseGuards } = require('@nestjs/common');
 const { Test } = require('@nestjs/testing');
@@ -64,8 +66,9 @@ for (const phase of ['handler', 'guard']) {
           },
         ],
       }).compile();
-      const app = module.createNestApplication({ logger: false });
+      const app = module.createNestApplication(createHttpAdapter(), { logger: false });
       const lifecycle = app.get(LifecycleService);
+      app.getHttpAdapter().setDrainHandler(() => lifecycle.drain());
       app.use(lifecycle.middleware);
       app.useGlobalInterceptors(new RequestLifecycleInterceptor());
       await app.listen(0, '127.0.0.1');
@@ -108,4 +111,31 @@ test('drain deadline rejects without pretending that outstanding work completed'
   await assert.rejects(lifecycle.drain(), /deadline exceeded/);
   assert(Date.now() - started < 1000);
   assert.equal(lifecycle.isDraining, true);
+});
+
+test('native pre-close drain rejects before Nest can suppress hook errors or destroy dependencies', async () => {
+  let destroyed = false;
+  const module = await Test.createTestingModule({
+    providers: [
+      LifecycleService,
+      { provide: EnvironmentService, useValue: { shutdownTimeoutMs: 50 } },
+      {
+        provide: 'dependency',
+        useValue: { onModuleDestroy() { destroyed = true; } },
+      },
+    ],
+  }).compile();
+  const app = module.createNestApplication(createHttpAdapter(), { logger: false });
+  const lifecycle = app.get(LifecycleService);
+  lifecycle.register('stalled-worker', () => new Promise(() => undefined));
+  app.getHttpAdapter().setDrainHandler(() => lifecycle.drain());
+  await app.init();
+  const started = Date.now();
+  await assert.rejects(app.close(), /deadline exceeded/);
+  assert(Date.now() - started < 1000);
+  assert.equal(
+    destroyed,
+    false,
+    'Dependencies must remain open while work is unfinished',
+  );
 });

@@ -2,7 +2,7 @@ import {
   type ExecutionContext,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import type { Response } from 'express';
+import type { NodeResponse as Response } from '@nestjs/platform-node';
 
 // Guards run before interceptors. Keep their database work alive even when the
 // caller disconnects, and never continue into a handler after that disconnect.

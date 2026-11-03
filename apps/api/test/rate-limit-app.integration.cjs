@@ -9,6 +9,8 @@ const { join, resolve } = require('node:path');
 const { test } = require('node:test');
 const { setTimeout: delay } = require('node:timers/promises');
 
+const { createHttpAdapter } = require('../dist/config/http-adapter');
+
 require('reflect-metadata');
 const databaseRequire = createRequire(
   resolve('../../packages/database/package.json'),
@@ -228,7 +230,7 @@ test(
         .overrideProvider(EnvironmentService)
         .useValue(environment)
         .compile();
-      const app = module.createNestApplication({ logger: false });
+      const app = module.createNestApplication(createHttpAdapter(environment.trustedProxies), { logger: false });
       const instance = { app };
       apps.push(instance);
       configureHttpApp(app);

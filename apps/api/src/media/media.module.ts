@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { MulterModule } from '@nestjs/platform-express';
+import { MulterModule } from '@nestjs/platform-node';
 
 import { EnvironmentModule } from '../config/environment.module';
 import { EnvironmentService } from '../config/environment.service';

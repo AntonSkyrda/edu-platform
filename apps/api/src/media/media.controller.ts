@@ -10,7 +10,7 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor } from '@nestjs/platform-node';
 import {
   ApiBody,
   ApiConsumes,
@@ -56,7 +56,7 @@ export class MediaController {
     },
   })
   @ApiEnvelope(MediaResponseDto, 201)
-  uploadImage(@UploadedFile() file?: Express.Multer.File) {
+  uploadImage(@UploadedFile() file?: { buffer: Buffer }) {
     return this.media.upload(file?.buffer, 'IMAGE');
   }
   @RequirePermissions('media.upload')
@@ -72,7 +72,7 @@ export class MediaController {
     },
   })
   @ApiEnvelope(MediaResponseDto, 201)
-  uploadPdf(@UploadedFile() file?: Express.Multer.File) {
+  uploadPdf(@UploadedFile() file?: { buffer: Buffer }) {
     return this.media.upload(file?.buffer, 'PDF');
   }
   @RequirePermissions('media.read')
