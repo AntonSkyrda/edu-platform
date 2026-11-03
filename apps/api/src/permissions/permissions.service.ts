@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common';
 import {
   type AuthUser,
@@ -10,6 +11,7 @@ import {
 } from '@project/contracts';
 import type { Transaction } from '@project/database';
 
+import { checkRecordVersion } from '../common/helpers/check-record-version';
 import { UsersService } from '../users/users.service';
 import { PermissionsRepository } from './permissions.repository';
 @Injectable()
@@ -34,10 +36,16 @@ export class PermissionsService {
       throw new ForbiddenException('Insufficient permissions');
   }
   async getAssigned(userId: string, tx: Transaction) {
-    await this.users.getByIdOrThrow(userId, { transaction: tx });
-    return { permissions: await this.repository.list(userId, tx) };
+    const snapshot = await this.repository.snapshot(userId, tx);
+    if (!snapshot) throw new NotFoundException('User not found');
+    return snapshot;
   }
-  async replace(userId: string, permissions: Permission[], tx: Transaction) {
+  async replace(
+    userId: string,
+    permissions: Permission[],
+    expectedVersion: number,
+    tx: Transaction,
+  ) {
     const user = await this.users.getByIdOrThrow(userId, {
       transaction: tx,
       lock: 'update',
@@ -46,8 +54,10 @@ export class PermissionsService {
       throw new BadRequestException(
         'Permissions can only be assigned to managers',
       );
-    return {
-      permissions: await this.repository.replace(userId, permissions, tx),
-    };
+    checkRecordVersion(user.permissionsVersion, expectedVersion);
+    const version = user.permissionsVersion + 1;
+    const granted = await this.repository.replace(userId, permissions, tx);
+    await this.users.update(userId, { permissionsVersion: version }, tx);
+    return { permissions: granted, version };
   }
 }

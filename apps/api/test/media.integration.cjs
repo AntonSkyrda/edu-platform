@@ -9,7 +9,6 @@ require('reflect-metadata');
 const { PDFDocument } = require('pdf-lib');
 const sharp = require('sharp');
 
-const { QueueService } = require('../dist/infrastructure/queue/queue.service');
 const {
   LocalStorageAdapter,
 } = require('../dist/infrastructure/storage/adapters/local-storage.adapter');
@@ -130,24 +129,18 @@ test('S3 adapter keeps object operations private and returns a stream', async ()
 });
 test('media cleanup is registered and executed through infrastructure queue', async () => {
   let scheduled;
-  const queue = new QueueService(
-    {},
-    {
-      upsertJobScheduler: async (...args) => {
-        scheduled = args;
-      },
+  const queue = {
+    schedule: async (...args) => {
+      scheduled = args;
     },
-  );
+  };
   const scheduler = new MediaCleanupScheduler(queue, {
     mediaCleanupIntervalMs: 60000,
   });
   scheduler.onModuleInit();
   await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(scheduled, [
-    'cleanup',
-    { every: 60000 },
-    { name: 'cleanup', data: {} },
-  ]);
+  assert.deepEqual(scheduled, ['media', 'cleanup', 60000]);
+  await scheduler.onModuleDestroy();
   let runs = 0;
   const processor = new MediaCleanupProcessor({
     run: async () => {

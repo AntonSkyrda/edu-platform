@@ -40,6 +40,13 @@ export function normalizeApiError(error: unknown): ApiError {
     return new ApiError(messages[0] ?? 'Не вдалося виконати запит.', {
       kind: 'http',
       status: error.response.status,
+      code:
+        typeof error.response.data === 'object' &&
+        error.response.data !== null &&
+        'code' in error.response.data &&
+        typeof error.response.data.code === 'string'
+          ? error.response.data.code
+          : undefined,
       messages: messages.length ? messages : undefined,
     });
   }

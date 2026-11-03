@@ -40,7 +40,9 @@ permissions through the ADMIN-only endpoints documented under Manager permission
 | GET    | /auth/me                         | Access token   | none                             |
 | POST   | /auth/users/:userId/block        | Active ADMIN   | none                             |
 | POST   | /auth/users/:userId/unblock      | Active ADMIN   | none                             |
-| GET    | /health                          | Public         | none                             |
+| GET    | /health/live                     | Public         | none                             |
+| GET    | /health/ready                    | Public         | none                             |
+| GET    | /health (readiness alias)        | Public         | none                             |
 
 Responses use the existing `{ status_code, detail, result }` envelope. Access
 JWTs last 15 minutes. Login and refresh return `{ expiresIn, user }` inside
@@ -76,9 +78,9 @@ the invitation remains pending in PostgreSQL and the dispatcher retries.
 Completed/failed queue jobs are removed; delivery status and safe error codes
 remain in PostgreSQL. Queue payloads contain only invitation IDs.
 
-The auth controller applies per-IP rate limits. The initial in-memory limiter is
-for a single API instance; use shared throttling storage before scaling replicas.
-The admin frontend implements the authentication flow. Permission-management screens remain follow-up work.
+All API controller routes except health probes use shared Redis rate limits; see
+the reverse proxy and rate limiting section below.
+The admin frontend implements authentication, permission management and invitation delivery status.
 
 ## Verification
 
@@ -169,8 +171,9 @@ are included. Sign in through the login endpoint; no bearer token is needed.
 
 New invitations store delivery state (`pending`, `sent`, `failed`, `skipped`) in
 the same transaction as the invitation. A dispatcher recovers pending deliveries
-at startup and every 30 seconds, in batches of 100. Queue payloads contain only
-the invitation ID. Tokens are derived using HMAC-SHA256 and a dedicated stable
+at startup, after an invitation/resend commits, and every 30 seconds, in batches
+of 100. HTTP does not await the dispatcher. Queue payloads contain the invitation
+ID and a correlation ID. Tokens are derived using HMAC-SHA256 and a dedicated stable
 `INVITATION_TOKEN_SECRET` (at least 32 characters); the database stores only their
 hash. Keep this secret across restarts. Changing it requires resending pending
 invitations. Existing invitations retain their original token validity; migration
@@ -185,6 +188,90 @@ requires the administrator to resend; a Redis outage is recovered automatically.
 Logout uses the refresh cookie, requires no valid access JWT, clears both cookies
 and succeeds for missing or already revoked tokens. CSRF checks still apply.
 Password limits are shared from contracts, and PasswordService owns Argon2 settings.
+
+### Redis queue availability and timeouts
+
+Invitation and resend responses acknowledge a committed PostgreSQL record with a
+pending delivery. They do not wait for Redis or SMTP. A background dispatcher
+submits stable job IDs to BullMQ; password reset links and password-change notices
+use the same durable recovery pattern. Overlapping recovery scans share one run.
+A failed enqueue ends the current batch, leaving rows pending for the next poll
+(`INVITATION_DELIVERY_POLL_SECONDS` / `PASSWORD_RESET_DELIVERY_POLL_SECONDS`, both
+30 seconds by default). A commit followed by process termination is recovered by
+the next startup scan. No database migration is required.
+
+`REDIS_QUEUE_TIMEOUT_MS` defaults to 1000 ms (integer range 100–5000). It bounds the
+whole producer operation, including connection setup, BullMQ initialization and
+adding a job or registering a scheduler. Producers have separate connections from
+workers, with no offline command queue or automatic replay. A timeout/failure
+closes the failed connection; the next attempt creates a fresh one. Pending work
+stays in PostgreSQL rather than accumulating in application memory. Closing the
+producer also cancels its in-flight network operations. Media cleanup registration
+retries every five seconds after failure, so a queue outage at startup does not
+permanently disable cleanup.
+
+Workers keep their reconnecting/blocking connections and five SMTP delivery attempts
+with exponential backoff. A lost Redis reply can mean a job was already added;
+retrying its stable job ID deduplicates it while it exists, and delivered database
+records are skipped by workers. This preserves the existing at-least-once email
+semantics, not an exactly-once guarantee across SMTP and database failures.
+
+The global rate limiter still deliberately returns 503 when its Redis connection
+is unavailable. This change removes the extra queue wait after a request passes
+that guard. Readiness continues to probe PostgreSQL and the limiter's Redis;
+it does not promise queue-worker or SMTP progress.
+
+Run `pnpm test:queue` with local PostgreSQL and Redis. Tests use isolated schemas,
+queue prefixes, a loopback SMTP peer and a TCP relay affecting only queue connections.
+They cover cold/established stalls, disconnects, lost acknowledgements, concurrent
+operations, shutdown, backlog recovery, bounded invite/resend/reset HTTP responses,
+real background delivery and media scheduler recovery. CI includes them in the
+existing `test:integration` suite.
+
+### SMTP availability and timeouts
+
+API startup does not open or verify an SMTP connection. Delivery jobs connect
+lazily when sending a message. A refused connection, failed authentication or a
+silent SMTP server does not prevent HTTP startup, login, catalog requests or
+liveness/readiness checks. Readiness still depends on PostgreSQL and Redis;
+SMTP availability is deliberately not part of it.
+
+Configure these values in milliseconds (each accepts integers from 100 to 60000):
+
+| Variable                     | Default | Applies to                                                           |
+| ---------------------------- | ------- | -------------------------------------------------------------------- |
+| `SMTP_DNS_TIMEOUT_MS`        | 5000    | DNS resolver queries                                                 |
+| `SMTP_CONNECTION_TIMEOUT_MS` | 5000    | Establishing the TCP/implicit TLS connection                         |
+| `SMTP_GREETING_TIMEOUT_MS`   | 5000    | Waiting for the server's initial SMTP greeting                       |
+| `SMTP_SOCKET_TIMEOUT_MS`     | 10000   | Inactivity during SMTP commands, authentication and message transfer |
+
+These are Nodemailer's network timeouts, not a single deadline for the entire
+message. DNS retries/fallbacks and multiple SMTP phases can take longer than one
+configured timeout; socket activity resets the inactivity timer. A network timeout
+closes the SMTP connection and propagates the failure to the existing delivery
+worker. Each retry opens a fresh connection, so delivery resumes when the server
+recovers without restarting the API.
+
+BullMQ retains five attempts with exponential backoff (initial delay 1 second).
+Pending invitations/password resets stay pending between attempts; successful
+SMTP acceptance marks them sent. After the final failure they are marked failed
+with a sanitized error code. Recovery after that requires an invitation resend
+or a new eligible password-reset request. If the server accepts a message but its
+acknowledgement is lost, retrying can deliver a duplicate; delivery remains at least
+once.
+
+`email.transport_unavailable` and `email.transport_ready` are emitted on state
+changes observed during sends, rather than on startup. They contain no recipient,
+message body, credentials or raw server response. Existing delivery events retain
+the job correlation and safe error codes.
+
+Run `pnpm test:email` with local PostgreSQL and Redis. Tests use an isolated local
+SMTP peer and disposable database/queue resources. They cover refused connections,
+a stalled TLS handshake, missing greetings, stalled commands/authentication/final
+acknowledgements, socket cleanup, recovery on the same service, full API startup,
+real queued invitation/password-reset retries, and all five failed attempts followed
+by an explicit resend. No real email is sent. CI includes these tests through
+`test:integration`.
 
 ### Structured logging
 
@@ -287,10 +374,58 @@ description column without changing existing slugs.
 independent of user accounts. Files use private storage; published photos are served
 through `/catalog/teachers/:slug/photo`, which checks publication on every request.
 
+### Concurrent catalog edits
+
+Subjects and teachers expose an integer `version`, starting at 1. Apply migration
+0009 before deploying the updated API. Existing records receive version 1.
+
+PATCH of a record or its publication status requires `expectedVersion` from the
+snapshot the editor read. PUT of teacher subject assignments requires the same
+field. DELETE of a subject or teacher also requires a JSON body with
+`expectedVersion`. For example: `{"expectedVersion":3}` for deletion or
+`{"name":"Updated name","expectedVersion":3}` for editing.
+Missing or invalid versions return 400. A stale version returns 409 with envelope
+`code: "VERSION_CONFLICT"`; no content, photo attachment or assignment changes are
+committed. Deletion checks the version under the same row lock and transaction
+as removal, before changing assignments or scheduling photo cleanup. An already
+deleted record returns 404. Every successful edit advances the version, even if
+values are unchanged.
+Teacher content, publication and subject assignments share one version. Deleting a
+subject increments the version of every teacher whose assignment is removed, in
+the same transaction as the deletion. Unrelated teachers are unchanged. Stale
+teacher edits, publication changes, assignment replacements and deletions therefore
+return `409 VERSION_CONFLICT`, even if their old assignment list includes the deleted
+subject. An unknown subject with a current teacher version still returns 404.
+Assignment GET/PUT responses contain `{items, version}` from a consistent transaction.
+
+Assignment writes lock referenced subjects with `FOR KEY SHARE` in ID order before
+locking the teacher. Subject deletion locks its subject `FOR UPDATE`, then affected
+teachers in ID order. This prevents new links from escaping a concurrent deletion
+and avoids reversing the parent/teacher lock order. Links are checked again after
+waiting for teacher locks, so a teacher that already removed the link is not
+incremented a second time. Rollback restores the subject, links and versions together.
+
+The admin retains the draft on conflict and never retries automatically. Reviewing
+fetches the latest snapshot and merges changes to different fields. When both editors
+changed the same field, the user explicitly chooses which value to retain and then
+saves. A further concurrent edit produces another conflict. Assignment lists are
+reconciled as a complete list, with an explicit choice if both editors changed it.
+The assignment review refreshes available subjects while retaining the local draft.
+Selected subjects outside the current page stay visible; a confirmed 404 identifies
+a deleted subject, which the editor can explicitly remove while keeping other
+changes. Lookup failures do not remove selections.
+Drafts stay in memory while the editor is open; they are not persisted across reloads.
+A deletion conflict cancels the attempt. The admin offers to open the latest
+record; deleting it afterwards requires another explicit confirmation and checks
+its version again. A failed review leaves the record untouched.
+Older API clients must supply `expectedVersion` for edits and deletions. Create
+request shapes are unchanged. Deploy the API and admin changes together.
+
 Example assignment replacement:
 
 ```json
 {
+  "expectedVersion": 1,
   "subjects": [
     { "subjectId": "00000000-0000-4000-8000-000000000001", "sortOrder": 0 },
     { "subjectId": "00000000-0000-4000-8000-000000000002", "sortOrder": 2 }
@@ -313,7 +448,9 @@ CRUD. Subject and teacher repositories inherit BaseRepository.
 Run `pnpm test:catalog` from the repository root. It uses a temporary PostgreSQL
 schema and removes it afterwards. HTTP tests exercise validation, authorization,
 public visibility, pagination, atomic assignment changes, concurrent publication,
-cascades and Swagger. They inject an authentication adapter; the separate auth
+cascades and Swagger. Cascade concurrency tests coordinate real PostgreSQL row
+locks to exercise both operation orders, including new links, removed links,
+overlapping subject deletions, consistent reads and rollback. They inject an authentication adapter; the separate auth
 integration suite verifies actual sessions and cookies.
 
 ## Private media uploads
@@ -402,10 +539,27 @@ Shared permission names and types live in `@project/contracts`:
 
 ADMIN-only endpoints:
 
-- `GET /auth/users/:userId/permissions` returns explicitly assigned grants.
+- `GET /auth/users/:userId/permissions` returns `{permissions, version}` from one
+  database snapshot. These are explicitly assigned grants, not effective permissions.
 - `PUT /auth/users/:userId/permissions` atomically replaces all manager grants.
-  Body: `{ "permissions": ["subjects.read", "teachers.read", "teachers.update"] }`.
-  An empty array revokes all grants. Unknown names and duplicates are rejected.
+  Body: `{ "permissions": ["subjects.read", "teachers.read"], "expectedVersion": 1 }`.
+  It returns `{permissions, version}` with the new version. An empty array revokes
+  all grants. Unknown names and duplicates are rejected.
+
+Apply migration 0010 before deploying this API. The grant version is stored on
+the user, starts at 1 for existing accounts, and survives revocation of every grant.
+Each successful replacement advances it, including a replacement with the same
+values. Missing or invalid `expectedVersion` returns 400. Concurrent writes lock
+the manager row; a stale version returns `409 VERSION_CONFLICT` without changing
+either the grants or their version. A missing user returns 404.
+
+On conflict, the admin preserves the selected checkboxes and blocks saving until
+the current grants are reviewed. The complete grant set is compared as one field;
+it never merges individual privileges automatically. If both administrators changed
+the set, the user explicitly chooses the current or local set, then saves again.
+Choosing the local set may restore privileges another administrator revoked.
+A further concurrent change causes another conflict. Failed refreshes retain the
+draft; it remains in memory only while the permissions editor is open.
 
 `GET /auth/me` includes effective `permissions`. The admin client loads this
 response after login. Invitations, blocking and permission management remain ADMIN-only.
@@ -422,4 +576,246 @@ assignments require `teachers.update`; fetching the subject selection requires
 `media.read` grants access to the shared private media library, including draft
 images and PDFs. Public teacher photos remain available only through the published
 catalog route. Future course documents require additional course/object access
-checks. There is no permission-management screen yet; use Swagger or the API.
+checks. Administrators manage manager grants through the admin users screen.
+
+## Reverse proxy and shared rate limits
+
+`TRUSTED_PROXIES` defaults to empty: the API uses the socket IP and ignores
+forwarded addresses. Set a comma-separated list of **actual proxy IPs/CIDRs**.
+For a proxy on the same host, for example:
+
+```dotenv
+TRUSTED_PROXIES=127.0.0.1/32,::1/128
+REDIS_HOST=redis
+REDIS_PORT=6379
+RATE_LIMIT_REDIS_PREFIX=edu-platform:production:rate-limit
+RATE_LIMIT_REDIS_TIMEOUT_MS=1000
+```
+
+Use your deployment's addresses instead of copying the example for a remote proxy.
+Hostnames, boolean switches, hop counts, wildcard ranges (`/0`), malformed entries
+and empty list items are rejected at startup. Trust every proxy hop that you operate;
+Express walks `X-Forwarded-For` from right to left and stops at the first untrusted
+address. Values further left cannot change the bucket. `X-Real-IP` and `Forwarded`
+are not used. The edge proxy must overwrite client-supplied forwarding headers with
+the observed client address; internal proxies append their observed peer. Restrict
+network access to the API to the intended proxies. Do not trust a whole shared
+container/client subnet when untrusted clients can connect from it. Trusting a proxy
+also affects Express's forwarded host/protocol handling.
+
+All replicas must use the same Redis server and `RATE_LIMIT_REDIS_PREFIX`; use a
+different prefix for each application/environment. Keep existing `REDIS_HOST` and
+`REDIS_PORT` aligned with the queue configuration. Counters have no process-local
+fallback. Redis must be private and configured to avoid evicting live limit keys
+(`noeviction`); use persistence if limits must survive Redis restarts. Restarting
+only the API retains counters. Redis data loss resets them.
+
+One global `ThrottlerGuard` covers all API controller routes, including public
+catalog reads and administrative catalog writes. The default is 60 requests/minute
+per client and route handler. Overrides remain: auth 20/minute, login/invitation
+acceptance/password recovery/reset 5/minute, and media uploads 10/minute. Other
+private media operations use the default 60/minute. Route parameters and query
+strings cannot create new buckets. IPv4-mapped addresses share the IPv4 bucket;
+IPv6 is grouped by /64, matching the throttler's default.
+
+The global guards are registered together in `AuthModule`: rate limiting, then
+CSRF, then authentication. Permission checks and validation follow. Requests
+rejected with 400/401/403 still consume the route's budget; a blocked request
+returns 429 before authentication or database permission queries. Controllers must
+not add another `ThrottlerGuard`: use `@Throttle` only to override a limit, so each
+request is counted once.
+
+`GET /health/live`, `/health/ready`, and the legacy `/health` alias explicitly use
+`@SkipThrottle()`. They consume no budget and have no rate-limit headers. Liveness
+remains independent of Redis; readiness still probes PostgreSQL and Redis. CORS
+preflight and non-controller endpoints such as development Swagger are handled by
+middleware, outside the guard.
+
+A Lua operation atomically prunes expired hits, checks the sliding window and records
+the request using Redis time. At most the route's limit of timestamps is stored.
+Exceeding the limit starts a block for the route's window (60 seconds); rejected
+requests do not extend it. Keys expire automatically. Responses include
+`X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset` (seconds until
+the oldest hit expires); 429 includes `Retry-After` in seconds. These headers are
+exposed to the admin origin via CORS.
+
+Redis connection/command failures return 503 on all limited routes, including the
+public catalog, before authentication or the handler. Connection and command timeouts default to 1000 ms (configurable from
+100 to 5000 ms). Requests are not queued while disconnected or automatically replayed;
+a stalled connection is reset after a command timeout, and the Redis client
+reconnects in the background. Queue producers use their own bounded connections;
+workers retain independent reconnecting connections. Already forwarded commands may still count when a response times out.
+
+Run `pnpm test:rate-limit` with local PostgreSQL and Redis running. The full-app
+suite starts two complete `AppModule` instances with the same HTTP configuration
+as `main.ts`, real sessions, image/PDF uploads, PostgreSQL and Redis. It exercises
+all public/admin catalog routes, auth/media overrides, exact remaining budgets,
+guard ordering, health exemptions, Redis outage and recovery. It overrides only
+test configuration; production guards, services and storage remain active.
+
+The focused Redis suite also covers proxy trust/spoofing, concurrent shared limits,
+expiry, route/IP isolation, IPv6, disconnects and timeouts. Tests own a unique schema,
+Redis prefixes and temporary media directories, which are removed after completion;
+Redis is never flushed. All these tests also run through `test:integration` in CI.
+The separate auth business suite uses an in-memory limiter; catalog business tests
+load their feature module. Global HTTP policy is verified by the full-app suite.
+
+## Liveness and readiness
+
+- `GET /health/live` returns 200 while the HTTP process can respond. It does not
+  query PostgreSQL or Redis and is suitable for a container liveness probe.
+- `GET /health/ready` returns 200 only when a `SELECT 1` through the application's
+  PostgreSQL pool and a `PING` through the rate limiter's Redis connection succeed.
+  A failed/timed-out dependency returns 503. Use this path for load-balancer readiness.
+- `GET /health` is retained as a readiness alias. It no longer always reports success;
+  move any existing restart/liveness checks to `/health/live` before deployment.
+
+All three routes are public, bypass rate limiting, and send `Cache-Control: no-store`.
+The existing response envelope is preserved. Liveness detail is `{ "status": "ok" }`.
+An unavailable Redis gives this readiness response (HTTP 503):
+
+```json
+{
+  "status_code": 503,
+  "detail": {
+    "status": "not_ready",
+    "checks": { "postgresql": "up", "redis": "down" }
+  },
+  "result": "error"
+}
+```
+
+When both dependencies are up, status is `ready`, HTTP/status_code is 200 and result
+is `success`. Responses expose only dependency status, never addresses, credentials,
+SQL errors or stack traces. Readiness checks run concurrently and default to a
+1000 ms deadline per dependency (`HEALTH_CHECK_TIMEOUT_MS`, range 100–5000 ms).
+Set the load balancer's request timeout higher than this deadline. The Redis client's
+own connection/command timeout can fail sooner (`RATE_LIMIT_REDIS_TIMEOUT_MS`).
+
+Concurrent probes share work; completed results are not cached. A timed-out PostgreSQL
+query destroys its checked-out connection. A late pool acquisition is released, and
+further probes reuse its failure until it settles rather than queueing more acquisitions.
+Redis probes likewise keep at most one pending PING and use the existing reconnecting
+client. No probe writes application data or increments request-limit buckets.
+
+PostgreSQL no longer gates HTTP startup with a one-off query. The API can expose
+liveness while dependencies are down; readiness keeps it out of normal traffic until
+connections recover. Validate this routing in your deployment: calling application
+routes directly still bypasses the load balancer's readiness decision. Invalid environment values
+still fail validation at startup. These probes check connectivity/query execution, not
+migration state, worker progress, SMTP delivery or S3 availability.
+
+Run `pnpm test:health` with local PostgreSQL and Redis running. Tests cover public
+HTTP semantics, partial/total outages, timeout bounds, recovery, concurrent probes,
+PostgreSQL pool cleanup and real dependency connections. Test outages use local TCP
+relays; they do not stop shared services or modify database/Redis data.
+
+### Queue isolation and browser integration tests
+
+`REDIS_QUEUE_PREFIX` sets the BullMQ namespace (default `bull`, preserving existing
+queues). Every API instance serving the same environment must use the same value;
+different environments sharing Redis should use different prefixes. Changing this
+value creates a separate set of queues and does not migrate pending jobs.
+
+`pnpm test:api` builds dependencies and runs all `test/*.integration.cjs` suites
+with local PostgreSQL and Redis. `pnpm typecheck` also runs the API's compile-time
+repository contract tests. GitHub CI starts PostgreSQL 18 and Redis 8 service
+containers and runs these checks alongside the build, lint and admin tests.
+
+`pnpm test:e2e` drives the admin against the built API, including its real guards,
+PostgreSQL, Redis and local media storage. See [admin testing](../admin/README.md#end-to-end-tests-with-the-real-api)
+for isolation, ports, prerequisites and retained failure artifacts.
+
+
+## Shutdown and bounded resource use
+
+On SIGTERM/SIGINT the API enters a drain phase before closing PostgreSQL, queue
+producers or the S3 client. New requests (including readiness) return 503 with
+`SHUTTING_DOWN` and `Retry-After: 1`; `/health/live` stays available. Active HTTP
+handlers, including disconnected callers with unfinished work, and active mail/
+media jobs finish first. Dispatch timers stop accepting new work. The database
+stays open until workers record their results.
+
+`SHUTDOWN_TIMEOUT_MS` defaults to 30000 (1000–120000). If work cannot finish, the
+signal handler exits with code 1 instead of waiting indefinitely or closing the
+pool underneath it. PostgreSQL rolls back interrupted transactions; durable
+pending mail and BullMQ stalled jobs recover on the next instance. Recovery of an
+active BullMQ job may take its lock expiry plus the stalled-job scan interval.
+Set the deployment's termination grace period above this deadline with room for
+connection cleanup. Programmatic `app.close()` rejects on a drain timeout; callers
+must terminate the process rather than continue serving from a partially stopped app.
+
+PostgreSQL enforces these limits on every application-pool connection:
+
+| Setting | Default | Allowed range (ms) |
+| --- | ---: | ---: |
+| `POSTGRES_STATEMENT_TIMEOUT_MS` | 5000 | 100–60000 |
+| `POSTGRES_LOCK_TIMEOUT_MS` | 1000 | 100–30000 |
+| `POSTGRES_IDLE_TRANSACTION_TIMEOUT_MS` | 10000 | 100–60000 |
+
+These are server cancellations, not just HTTP response timers. Transactions roll
+back on failure, releasing locks. The HTTP envelope returns 503 with
+`DATABASE_TIMEOUT` and `Retry-After: 1`, without SQL/parameters. A timed-out write
+should be retried only after checking the current record/version. Keep lock timeout
+below statement timeout for a distinct lock deadline. Migration tooling uses its
+own connections and is not subject to the application-pool limits.
+
+Images and PDFs share one admission gate per API instance, before Multer reads the
+file into memory. `MEDIA_MAX_CONCURRENT=2` (1–8) bounds active uploads/processing;
+`MEDIA_MAX_WAITING=4` (0–32) bounds waiting requests and
+`MEDIA_WAIT_TIMEOUT_MS=1000` (100–10000) limits their wait. Saturation returns 503
+with `MEDIA_BUSY`. Disconnecting while queued releases the waiting slot; processing
+and validation failures release active slots. These limits complement existing
+file-size, image-pixel and PDF-worker timeouts. They do not impose a cluster-wide
+quota: each instance owns its own memory/CPU capacity.
+
+## Mail dispatch reservations and operations
+
+Apply migrations with `pnpm db:migrate` before running the updated API. Migrations
+0011/0012 add dispatch schedules/reservations and worker heartbeat records.
+PostgreSQL remains the source of pending mail; HTTP writes do not wait for Redis.
+Each dispatcher atomically reserves one eligible row with `FOR UPDATE SKIP LOCKED`.
+Instances therefore share the backlog without all selecting the same first 100
+rows. A pass processes up to 100 rows per delivery kind; future polls take the next
+eligible rows, even when previous jobs are still waiting for SMTP.
+
+`MAIL_DISPATCH_LEASE_MS=60000` (1000–600000) is the reservation/recheck interval.
+Use a value longer than queue operation latency and SQL acknowledgement timeouts.
+An enqueue failure schedules another attempt after the configured delivery poll
+interval. A lost process/acknowledgement becomes eligible again after its lease
+expires. Completion is fenced by a random lease ID, so an old dispatcher cannot
+clear a newer reservation. Stable BullMQ job IDs prevent duplicate queued jobs;
+SMTP remains at-least-once (a crash after SMTP accepts mail but before PostgreSQL
+records success may send it again).
+
+`GET /auth/users` adds the latest invitation's status, SMTP attempt count, dispatch
+attempt count, enqueue/delivery timestamps and safe error code. Tokens, hashes and
+lease IDs are excluded. The admin Users page displays waiting/sent/failed/skipped
+states and refreshes every 15 seconds; resending uses the existing endpoint and
+revokes the old invitation. “Sent” means SMTP accepted the message, not that the
+recipient read it or that a mailbox accepted it.
+
+`GET /admin/delivery` is ADMIN-only, rate limited and `no-store`. It provides
+pending/failed counts and oldest pending age for invitations, password resets and
+password-change notifications, plus worker process heartbeats, active jobs and last
+completion/failure times. A heartbeat is process presence, not proof that SMTP or
+Redis can deliver. Samples update every 15 seconds, expire from online counts after
+60 seconds, and are removed after seven days. A graceful stop marks the worker
+offline immediately after its final job. Failed invitation/reset links that are
+revoked, used or expired no longer contribute to actionable failure counts.
+
+An alert is raised when there is an actionable failure, pending work without a
+recent heartbeat, or pending age exceeds `MAIL_BACKLOG_WARNING_SECONDS=300`
+(10–86400). The admin page shows the warning. Structured logs emit
+`mail.delivery_alert`, `mail.delivery_healthy` and `mail.monitor_unavailable` on state
+transitions; connect these events to the deployment's existing log alerting system.
+No external notification service is assumed. Check SMTP/Redis reachability, review
+safe error codes and pending age, and resend failed invitations after recovery.
+Health/readiness stays focused on serving HTTP; mail degradation does not remove
+otherwise healthy instances from traffic.
+
+`pnpm test:api` includes real SQL cancellation/rollback, bounded media admission,
+250-record dispatch across two instances, expired/obsolete leases, access to delivery
+metrics, and production signal shutdown with an active SMTP job and stalled Redis.
+The signal test restarts the actual API entry point and verifies pending mail is
+recovered. All use isolated local schemas, Redis prefixes and loopback mail peers.

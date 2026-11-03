@@ -113,8 +113,8 @@ export function InviteForm() {
         <ErrorNotice error={mutation.error} />
         {mutation.isSuccess && (
           <SuccessNotice>
-            Запрошення створено, лист поставлено в чергу. Це ще не підтвердження
-            доставки.
+            Запрошення збережено. Стан доставки листа відображається в списку
+            учасників.
           </SuccessNotice>
         )}
         <Button type="submit" disabled={mutation.isPending}>

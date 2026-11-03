@@ -12,6 +12,7 @@ import type {
 } from '@project/contracts';
 import type { Teacher } from '@project/database/types';
 
+import { checkRecordVersion } from '../../common/helpers/check-record-version';
 import { DatabaseService } from '../../database/database.service';
 import { MediaService } from '../../media/services/media.service';
 import { PermissionsService } from '../../permissions/permissions.service';
@@ -93,7 +94,8 @@ export class TeachersService {
     data: UpdateTeacherRequest & { status?: PublicationStatus },
     actor: AuthUser,
   ) {
-    if (!Object.keys(data).length)
+    const { expectedVersion, ...changes } = data;
+    if (!Object.keys(changes).length)
       throw new BadRequestException('No fields to update');
     try {
       return await this.database.db.transaction(async (tx) => {
@@ -101,17 +103,22 @@ export class TeachersService {
           transaction: tx,
           lock: 'update',
         });
-        if (data.photoId !== undefined)
+        checkRecordVersion(current.version, expectedVersion);
+        if (changes.photoId !== undefined)
           await this.media.prepareImageReplacement(
             current.photoId,
-            data.photoId,
+            changes.photoId,
             tx,
           );
-        if (current.status === 'PUBLISHED' || data.status !== undefined) {
+        if (current.status === 'PUBLISHED' || changes.status !== undefined) {
           await this.permissions.require(actor, ['teachers.publish'], tx);
         }
-        this.validatePublication({ ...current, ...data });
-        const updated = await this.repository.update(id, data, tx);
+        this.validatePublication({ ...current, ...changes });
+        const updated = await this.repository.update(
+          id,
+          { ...changes, version: current.version + 1 },
+          tx,
+        );
         if (!updated) throw new NotFoundException('Teacher not found');
         return toTeacher(updated);
       });
@@ -122,15 +129,21 @@ export class TeachersService {
   update(id: string, data: UpdateTeacherRequest, actor: AuthUser) {
     return this.write(id, data, actor);
   }
-  setStatus(id: string, status: PublicationStatus, actor: AuthUser) {
-    return this.write(id, { status }, actor);
+  setStatus(
+    id: string,
+    status: PublicationStatus,
+    expectedVersion: number,
+    actor: AuthUser,
+  ) {
+    return this.write(id, { status, expectedVersion }, actor);
   }
-  async delete(id: string) {
+  async delete(id: string, expectedVersion: number) {
     await this.database.db.transaction(async (tx) => {
       const teacher = await this.getByIdOrThrow(id, {
         transaction: tx,
         lock: 'update',
       });
+      checkRecordVersion(teacher.version, expectedVersion);
       await this.media.prepareImageReplacement(teacher.photoId, null, tx);
       await this.repository.delete(id, tx);
     });
@@ -144,23 +157,41 @@ export class TeachersService {
   }
 
   async getSubjects(id: string) {
-    await this.getByIdOrThrow(id);
-    return { items: await this.assignments.list(id) };
+    return this.database.db.transaction(async (tx) => {
+      const teacher = await this.getByIdOrThrow(id, {
+        transaction: tx,
+        lock: 'update',
+      });
+      return {
+        items: await this.assignments.list(id, tx),
+        version: teacher.version,
+      };
+    });
   }
   async setSubjects(
     id: string,
     subjects: TeacherSubjectAssignment[],
+    expectedVersion: number,
     actor: AuthUser,
   ) {
     try {
       return await this.database.db.transaction(async (tx) => {
+        const subjectsExist = await this.assignments.lockSubjects(subjects, tx);
         const teacher = await this.getByIdOrThrow(id, {
           transaction: tx,
           lock: 'update',
         });
         if (teacher.status === 'PUBLISHED')
           await this.permissions.require(actor, ['teachers.publish'], tx);
-        return { items: await this.assignments.replace(id, subjects, tx) };
+        checkRecordVersion(teacher.version, expectedVersion);
+        // Check the teacher revision first so a deleted assignment produces the
+        // same reviewable conflict as any other change to the assignment list.
+        if (!subjectsExist)
+          throw new NotFoundException('Referenced subject does not exist');
+        const items = await this.assignments.replace(id, subjects, tx);
+        const version = teacher.version + 1;
+        await this.repository.update(id, { version }, tx);
+        return { items, version };
       });
     } catch (error) {
       throwCatalogWriteError(error);

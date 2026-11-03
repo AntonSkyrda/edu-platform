@@ -23,6 +23,7 @@ const { Module, ValidationPipe } = require('@nestjs/common');
 const { ConfigService } = require('@nestjs/config');
 const { JwtService } = require('@nestjs/jwt');
 const { Test } = require('@nestjs/testing');
+const { ThrottlerStorageService } = require('@nestjs/throttler');
 const { createDatabase, createDatabaseUrl, eq } = require('@project/database');
 const {
   users,
@@ -85,6 +86,9 @@ const { DatabaseService } = require('../dist/database/database.service');
 const { EmailModule } = require('../dist/infrastructure/email/email.module');
 const { QueueModule } = require('../dist/infrastructure/queue/queue.module');
 const { QueueService } = require('../dist/infrastructure/queue/queue.service');
+const {
+  RedisThrottlerStorage,
+} = require('../dist/infrastructure/rate-limit/redis-throttler.storage');
 const { createAdmin } = require('../dist/scripts/helpers/create-admin');
 const { UsersRepository } = require('../dist/users/users.repository');
 const { UsersService } = require('../dist/users/users.service');
@@ -122,6 +126,9 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
     },
   };
   const environment = {
+    mailDispatchLeaseMs: 60000,
+    mailBacklogWarningSeconds: 300,
+    shutdownTimeoutMs: 30000,
     passwordResetTokenSecret: randomBytes(32).toString('hex'),
     passwordResetTtlMs: 1800000,
     passwordResetCooldownMs: 60000,
@@ -451,6 +458,7 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
         assert.equal(invited.email, 'member@example.test');
         assert.equal(invited.status, 'INVITED');
         assert.equal('passwordHash' in invited, false);
+        await delivery.recover();
         invitationToken = jobs.at(-1).token;
         const [invitation] = await db
           .select()
@@ -551,7 +559,7 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
           PERMISSIONS,
         );
         await assert.rejects(
-          service.setPermissions(member, member.user.id, ['subjects.read']),
+          service.setPermissions(member, member.user.id, ['subjects.read'], 1),
           status(403),
         );
         await assert.rejects(
@@ -559,13 +567,15 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
           status(403),
         );
         await assert.rejects(
-          service.setPermissions(actor, admin.id, ['subjects.read']),
+          service.setPermissions(actor, admin.id, ['subjects.read'], 1),
           status(400),
         );
-        await service.setPermissions(actor, member.user.id, [
-          'subjects.read',
-          'media.upload',
-        ]);
+        await service.setPermissions(
+          actor,
+          member.user.id,
+          ['subjects.read', 'media.upload'],
+          1,
+        );
         assert.deepEqual((await service.currentUser(member)).permissions, [
           'subjects.read',
           'media.upload',
@@ -574,7 +584,7 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
           (await service.getPermissions(actor, member.user.id)).permissions,
           ['subjects.read', 'media.upload'],
         );
-        await service.setPermissions(actor, member.user.id, []);
+        await service.setPermissions(actor, member.user.id, [], 2);
         assert.deepEqual((await service.currentUser(member)).permissions, []);
       },
     );
@@ -706,8 +716,10 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
           lastName: 'Y',
           role: 'STUDENT',
         });
+        await delivery.recover();
         const old = jobs.at(-1);
         await service.resend(actor, user.id);
+        await delivery.recover();
         const next = jobs.at(-1);
         await assert.rejects(
           service.acceptInvitation(old.token, password),
@@ -730,6 +742,7 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
           status(401),
         );
         await service.resend(actor, user.id);
+        await delivery.recover();
         const beforeBlock = jobs.at(-1);
         await service.setBlocked(actor, user.id, true);
         await service.setBlocked(actor, user.id, false);
@@ -803,6 +816,8 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
           queue,
           environment,
         );
+        await failedDelivery.recover();
+        await db.update(userInvitations).set({ nextDispatchAt: new Date(0) }).where(eq(userInvitations.id, record.id));
         await restarted.recover();
         assert(jobs.some((job) => job.invitationId === record.id));
         let sends = 0;
@@ -866,6 +881,7 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
           lastName: 'Y',
           role: 'STUDENT',
         });
+        await delivery.recover();
         const job = jobs.at(-1);
         const worker = new InvitationEmailProcessor(
           services[1],
@@ -897,6 +913,7 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
           ),
         );
         await service.resend(actor, user.id);
+        await delivery.recover();
         assert.notEqual(jobs.at(-1).invitationId, record.id);
       },
     );
@@ -1020,6 +1037,8 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
           },
           environment,
         );
+        // Advance the persisted retry schedule after the simulated outage.
+        await db.update(passwordResets).set({ nextDispatchAt: new Date(0) });
         await dispatcher.recover();
         const sent = [];
         const processor = new PasswordResetEmailProcessor(
@@ -1227,7 +1246,7 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
 
     await t.test(
       'HTTP guards, validation, cookies, origin checks and throttling',
-      async () => {
+      async (httpTest) => {
         class FakeEmailModule {}
         Module({})(FakeEmailModule);
         class FakeQueueModule {}
@@ -1238,6 +1257,8 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
         const module = await Test.createTestingModule({ imports: [AuthModule] })
           .overrideModule(EmailModule)
           .useModule(FakeEmailModule)
+          .overrideProvider(RedisThrottlerStorage)
+          .useValue(new ThrottlerStorageService())
           .overrideModule(QueueModule)
           .useModule(FakeQueueModule)
           .overrideProvider(InvitationDeliveryService)
@@ -1266,11 +1287,16 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
         app.useGlobalInterceptors(new ResponseInterceptor());
         app.useGlobalFilters(new AllExceptionFilter());
         await app.init();
+        await app.listen(0, '127.0.0.1');
         const http = request(app.getHttpServer());
+        // Origin rejection now consumes a rate-limit hit too. Give those
+        // requests their own simulated client, keeping the recovery budget exact.
+        app.set('trust proxy', ['127.0.0.1/32']);
         for (const route of ['/auth/forgot-password', '/auth/reset-password']) {
           await http
             .post(route)
             .set('Origin', 'https://evil.example')
+            .set('X-Forwarded-For', '198.51.100.99')
             .send({})
             .expect(403);
         }
@@ -1381,6 +1407,9 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
         assert.deepEqual(me.body.detail.permissions, PERMISSIONS);
         const permissionPath = `/auth/users/${invited.id}/permissions`;
         await http.get(permissionPath).expect(401);
+        const permissionsVersion = (
+          await http.get(permissionPath).set('Cookie', cookieHeader).expect(200)
+        ).body.detail.version;
         for (const permissions of [
           ['unknown.permission'],
           ['subjects.read', 'subjects.read'],
@@ -1391,20 +1420,23 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
             .put(permissionPath)
             .set('Cookie', cookieHeader)
             .set('Origin', 'http://localhost:3000')
-            .send({ permissions })
+            .send({ permissions, expectedVersion: permissionsVersion })
             .expect(400);
         }
         await http
           .put(permissionPath)
           .set('Cookie', cookieHeader)
           .set('Origin', 'https://evil.example')
-          .send({ permissions: [] })
+          .send({ permissions: [], expectedVersion: permissionsVersion + 1 })
           .expect(403);
         await http
           .put(permissionPath)
           .set('Cookie', cookieHeader)
           .set('Origin', 'http://localhost:3000')
-          .send({ permissions: ['subjects.read'] })
+          .send({
+            permissions: ['subjects.read'],
+            expectedVersion: permissionsVersion,
+          })
           .expect(200);
         const granted = await http
           .get(permissionPath)
@@ -1415,8 +1447,137 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
           .put(permissionPath)
           .set('Cookie', cookieHeader)
           .set('Origin', 'http://localhost:3000')
-          .send({ permissions: [] })
+          .send({ permissions: [], expectedVersion: permissionsVersion + 1 })
           .expect(200);
+        await httpTest.test(
+          'permission versions reject stale or missing preconditions and serialize different admins',
+          async () => {
+            const secondAdmin = await services[0].create({
+              email: 'version-admin@example.test',
+              firstName: 'Second',
+              lastName: 'Admin',
+              role: 'ADMIN',
+              status: 'ACTIVE',
+              passwordHash: await new PasswordService().hash(password),
+            });
+            const secondTokens = await service.login(
+              secondAdmin.email,
+              password,
+            );
+            const secondCookie = `access_token=${secondTokens.accessToken}`;
+            const target = await services[0].create({
+              email: 'version-manager@example.test',
+              firstName: 'Version',
+              lastName: 'Manager',
+              role: 'MANAGER',
+              status: 'ACTIVE',
+            });
+            const path = `/auth/users/${target.id}/permissions`;
+            const get = async () =>
+              (
+                await http
+                  .get(path)
+                  .set('Cookie', cookieHeader)
+                  .set('X-Forwarded-For', '198.51.100.81')
+                  .expect(200)
+              ).body.detail;
+            const put = (cookie, data) =>
+              http
+                .put(path)
+                .set('Cookie', cookie)
+                .set('Origin', environment.frontendOrigin)
+                .set(
+                  'X-Forwarded-For',
+                  cookie === cookieHeader ? '198.51.100.82' : '198.51.100.83',
+                )
+                .send(data);
+            assert.deepEqual(await get(), { permissions: [], version: 1 });
+            for (const expectedVersion of [
+              undefined,
+              null,
+              0,
+              -1,
+              1.5,
+              '1',
+              2147483648,
+            ])
+              await put(cookieHeader, {
+                permissions: [],
+                expectedVersion,
+              }).expect(400);
+            const results = await Promise.all([
+              put(cookieHeader, {
+                permissions: ['subjects.read'],
+                expectedVersion: 1,
+              }),
+              put(secondCookie, {
+                permissions: ['media.upload'],
+                expectedVersion: 1,
+              }),
+            ]);
+            assert.deepEqual(results.map((r) => r.status).sort(), [200, 409]);
+            assert.equal(
+              results.find((r) => r.status === 409).body.code,
+              'VERSION_CONFLICT',
+            );
+            const winner = results.find((r) => r.status === 200).body.detail;
+            assert.equal(winner.version, 2);
+            assert.deepEqual(await get(), winner);
+            const revoked = await put(cookieHeader, {
+              permissions: [],
+              expectedVersion: 2,
+            }).expect(200);
+            assert.deepEqual(revoked.body.detail, {
+              permissions: [],
+              version: 3,
+            });
+            // A stale administrator cannot bring back grants revoked by another.
+            await put(secondCookie, {
+              permissions: winner.permissions,
+              expectedVersion: 2,
+            }).expect(409);
+            assert.deepEqual(await get(), { permissions: [], version: 3 });
+            const emptyRaces = await Promise.all([
+              put(cookieHeader, { permissions: [], expectedVersion: 3 }),
+              put(secondCookie, {
+                permissions: ['subjects.delete'],
+                expectedVersion: 3,
+              }),
+            ]);
+            assert.deepEqual(
+              emptyRaces.map((r) => r.status).sort(),
+              [200, 409],
+            );
+            const snapshot = await get();
+            assert.equal(snapshot.version, 4);
+            assert.deepEqual(
+              snapshot,
+              emptyRaces.find((r) => r.status === 200).body.detail,
+            );
+            // The replacement and its revision must roll back together on failure.
+            const userService = app.get(UsersService);
+            const update = t.mock.method(userService, 'update', async () => {
+              throw new Error('Test revision write failure');
+            });
+            try {
+              await put(secondCookie, {
+                permissions: ['teachers.read'],
+                expectedVersion: 4,
+              }).expect(500);
+            } finally {
+              update.mock.restore();
+            }
+            assert.deepEqual(await get(), snapshot);
+            // Missing target still returns 404, independently of the version.
+            await http
+              .put(`/auth/users/${randomUUID()}/permissions`)
+              .set('Cookie', cookieHeader)
+              .set('Origin', environment.frontendOrigin)
+              .set('X-Forwarded-For', '198.51.100.84')
+              .send({ permissions: [], expectedVersion: 1 })
+              .expect(404);
+          },
+        );
         await http.get('/auth/users').expect(401);
         const listed = await http
           .get('/auth/users?limit=1&offset=0')
@@ -1428,6 +1589,7 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
           'email',
           'firstName',
           'id',
+          'invitation',
           'lastName',
           'role',
           'status',

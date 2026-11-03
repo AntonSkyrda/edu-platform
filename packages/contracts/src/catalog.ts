@@ -1,10 +1,13 @@
+import type { VersionedRequest } from './version';
+
 export const PUBLICATION_STATUSES = ['DRAFT', 'PUBLISHED'] as const;
 export type PublicationStatus = (typeof PUBLICATION_STATUSES)[number];
 export interface CreateSubjectRequest {
   name: string;
   sortOrder?: number;
 }
-export type UpdateSubjectRequest = Partial<CreateSubjectRequest>;
+export type UpdateSubjectRequest = Partial<CreateSubjectRequest> &
+  VersionedRequest;
 export interface CreateTeacherRequest {
   firstName: string;
   lastName: string;
@@ -12,7 +15,8 @@ export interface CreateTeacherRequest {
   shortDescription?: string | null;
   biography?: string | null;
 }
-export type UpdateTeacherRequest = Partial<CreateTeacherRequest>;
+export type UpdateTeacherRequest = Partial<CreateTeacherRequest> &
+  VersionedRequest;
 export interface SubjectResponse {
   id: string;
   name: string;
@@ -21,6 +25,7 @@ export interface SubjectResponse {
   status: PublicationStatus;
   createdAt: string;
   updatedAt: string;
+  version: number;
 }
 export interface TeacherResponse {
   id: string;
@@ -33,6 +38,7 @@ export interface TeacherResponse {
   status: PublicationStatus;
   createdAt: string;
   updatedAt: string;
+  version: number;
 }
 export interface CatalogPage<T> {
   items: T[];
@@ -42,9 +48,13 @@ export interface TeacherSubjectAssignment {
   subjectId: string;
   sortOrder: number;
 }
-export interface SetTeacherSubjectsRequest {
+export interface TeacherSubjectsResponse {
+  items: TeacherSubjectAssignment[];
+  version: number;
+}
+export interface SetTeacherSubjectsRequest extends VersionedRequest {
   subjects: TeacherSubjectAssignment[];
 }
-export interface SetPublicationStatusRequest {
+export interface SetPublicationStatusRequest extends VersionedRequest {
   status: PublicationStatus;
 }
