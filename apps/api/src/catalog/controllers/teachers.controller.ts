@@ -20,6 +20,7 @@ import {
   ApiErrorEnvelope,
 } from '../../common/decorators/api-envelope.decorator';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
+import { ExpectedVersionDto } from '../../common/dto/expected-version.dto';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import type { AuthRequest } from '../../common/interfaces/auth-request.interface';
 import { CatalogQueryDto } from '../dto/catalog-query.dto';
@@ -41,8 +42,10 @@ import { TeachersService } from '../services/teachers.service';
 @ApiErrorEnvelope(400, 'Invalid input or incomplete publication')
 @ApiErrorEnvelope(401, 'Authentication required')
 @ApiErrorEnvelope(403, 'Required permission missing')
+@ApiErrorEnvelope(429, 'Rate limit exceeded; retry after the indicated delay')
+@ApiErrorEnvelope(503, 'Rate limiting temporarily unavailable')
 @ApiErrorEnvelope(404, 'Not found')
-@ApiErrorEnvelope(409, 'Slug already exists')
+@ApiErrorEnvelope(409, 'Record version conflict or concurrent write')
 @UseGuards(PermissionsGuard)
 @Controller('admin/teachers')
 export class TeachersController {
@@ -86,7 +89,12 @@ export class TeachersController {
     @Body() data: PublicationStatusDto,
     @Req() request: AuthRequest,
   ) {
-    return this.service.setStatus(id, data.status, request.auth.user);
+    return this.service.setStatus(
+      id,
+      data.status,
+      data.expectedVersion,
+      request.auth.user,
+    );
   }
   @RequirePermissions('teachers.delete')
   @Delete(':id')
@@ -94,8 +102,11 @@ export class TeachersController {
   @ApiOperation({
     summary: 'Permanently delete the record and its subject assignments',
   })
-  delete(@Param('id', new ParseUUIDPipe()) id: string) {
-    return this.service.delete(id);
+  delete(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() data: ExpectedVersionDto,
+  ) {
+    return this.service.delete(id, data.expectedVersion);
   }
 
   @Header('Cache-Control', 'no-store')
@@ -114,6 +125,11 @@ export class TeachersController {
     @Body() data: SetTeacherSubjectsDto,
     @Req() request: AuthRequest,
   ) {
-    return this.service.setSubjects(id, data.subjects, request.auth.user);
+    return this.service.setSubjects(
+      id,
+      data.subjects,
+      data.expectedVersion,
+      request.auth.user,
+    );
   }
 }

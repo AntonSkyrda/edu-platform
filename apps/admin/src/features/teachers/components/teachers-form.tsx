@@ -5,13 +5,33 @@ import { useState } from 'react';
 
 import { usePermissions } from '@/features/auth';
 import { FileUpload, ImagePreview } from '@/features/media';
+import {
+  isVersionConflict,
+  useEditConflict,
+} from '@/shared/lib/use-edit-conflict';
 import { Button } from '@/shared/ui/button';
+import { EditConflictNotice } from '@/shared/ui/edit-conflict-notice';
 import { ErrorNotice } from '@/shared/ui/feedback';
 import { FormField } from '@/shared/ui/form-field';
 import { TextareaField } from '@/shared/ui/textarea-field';
 
 import { teachersApi } from '../api/teachers-api';
 import { teacherSchema } from '../model/schema';
+const editValues = (record: TeacherResponse) => ({
+  firstName: record.firstName,
+  lastName: record.lastName,
+  shortDescription: record.shortDescription ?? '',
+  biography: record.biography ?? '',
+  photoId: record.photoId ?? '',
+});
+const fieldLabels = {
+  firstName: 'Ім’я',
+  lastName: 'Прізвище',
+  shortDescription: 'Короткий опис',
+  biography: 'Біографія',
+  photoId: 'Фото',
+};
+
 export function TeacherForm({
   initial,
   onSaved,
@@ -23,16 +43,27 @@ export function TeacherForm({
 }) {
   const client = useQueryClient();
   const can = usePermissions();
+  const conflict = useEditConflict(
+    initial,
+    () => teachersApi.get(initial!.id),
+    editValues,
+  );
+  const current = conflict.record;
   const [uploading, setUploading] = useState(false);
   const allowed = initial
     ? can('teachers.update') &&
-      (initial.status !== 'PUBLISHED' || can('teachers.publish'))
+      (current?.status !== 'PUBLISHED' || can('teachers.publish'))
     : can('teachers.create');
   const save = useMutation({
     mutationFn: (data: Parameters<typeof teachersApi.save>[0]) =>
-      teachersApi.save(data, initial?.id),
+      teachersApi.save(data, current),
+    onError: conflict.capture,
     onSuccess: (value) => {
+      conflict.accept(value);
       void client.invalidateQueries({ queryKey: ['teachers'] });
+      void client.invalidateQueries({
+        queryKey: ['teacher-subjects', value.id],
+      });
       onSaved(value);
     },
   });
@@ -46,7 +77,7 @@ export function TeacherForm({
     },
     validators: { onSubmit: teacherSchema },
     onSubmit: async ({ value }) => {
-      if (!allowed || uploading) return;
+      if (!allowed || uploading || conflict.blocked) return;
       const data = teacherSchema.parse(value);
       await save
         .mutateAsync({ ...data, photoId: data.photoId || null })
@@ -61,7 +92,7 @@ export function TeacherForm({
         </h2>
         <Button
           variant="ghost"
-          disabled={save.isPending || uploading}
+          disabled={save.isPending || uploading || conflict.pending}
           onClick={() => {
             if (
               !form.state.isDirty ||
@@ -85,7 +116,49 @@ export function TeacherForm({
           void form.handleSubmit();
         }}
       >
-        <fieldset disabled={!allowed || save.isPending} className="space-y-4">
+        <EditConflictNotice
+          {...conflict}
+          onReview={() =>
+            void conflict.review(form.state.values, (values) => {
+              for (const key of Object.keys(values) as (keyof typeof values)[])
+                form.setFieldValue(key, values[key]);
+            })
+          }
+          fields={conflict.fields.map((key) => ({
+            key,
+            label: fieldLabels[key],
+            local:
+              key === 'photoId' &&
+              form.state.values.photoId &&
+              can('media.read') ? (
+                <ImagePreview id={form.state.values.photoId} />
+              ) : (
+                String(form.state.values[key] || '—')
+              ),
+            remote:
+              key === 'photoId' &&
+              conflict.remote?.photoId &&
+              can('media.read') ? (
+                <ImagePreview id={conflict.remote.photoId} />
+              ) : (
+                String(conflict.remote?.[key] || '—')
+              ),
+            choose: (source) => {
+              if (source === 'remote' && conflict.remote)
+                form.setFieldValue(key, conflict.remote[key]);
+              conflict.resolve(key);
+            },
+          }))}
+        />
+        <fieldset
+          disabled={
+            !allowed ||
+            save.isPending ||
+            conflict.pending ||
+            conflict.fields.length > 0
+          }
+          className="space-y-4"
+        >
           <form.Field name="firstName">
             {(f) => (
               <FormField
@@ -167,10 +240,14 @@ export function TeacherForm({
               </div>
             )}
           </form.Field>
-          <ErrorNotice error={save.error} />
+          <ErrorNotice
+            error={isVersionConflict(save.error) ? undefined : save.error}
+          />
           <Button
             type="submit"
-            disabled={!allowed || save.isPending || uploading}
+            disabled={
+              !allowed || save.isPending || uploading || conflict.blocked
+            }
           >
             {save.isPending ? 'Зберігаємо…' : 'Зберегти'}
           </Button>

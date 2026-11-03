@@ -26,6 +26,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 
+import { ExpectedVersionDto } from '../../common/dto/expected-version.dto';
 import { trimString } from '../helpers/catalog-transform.helper';
 export class CreateSubjectDto implements CreateSubjectRequest {
   @ApiProperty({ maxLength: 100 })
@@ -42,7 +43,13 @@ export class CreateSubjectDto implements CreateSubjectRequest {
 }
 export class UpdateSubjectDto extends PartialType(CreateSubjectDto, {
   skipNullProperties: false,
-}) {}
+}) {
+  @ApiProperty({ minimum: 1, description: 'Version read by the editor' })
+  @IsInt()
+  @Min(1)
+  @Max(2147483647)
+  expectedVersion!: number;
+}
 export class CreateTeacherDto implements CreateTeacherRequest {
   @ApiProperty({ maxLength: 100 })
   @Transform(trimString)
@@ -83,8 +90,17 @@ export class CreateTeacherDto implements CreateTeacherRequest {
 }
 export class UpdateTeacherDto extends PartialType(CreateTeacherDto, {
   skipNullProperties: false,
-}) {}
-export class PublicationStatusDto implements SetPublicationStatusRequest {
+}) {
+  @ApiProperty({ minimum: 1, description: 'Version read by the editor' })
+  @IsInt()
+  @Min(1)
+  @Max(2147483647)
+  expectedVersion!: number;
+}
+export class PublicationStatusDto
+  extends ExpectedVersionDto
+  implements SetPublicationStatusRequest
+{
   @ApiProperty({ enum: PUBLICATION_STATUSES })
   @IsIn(PUBLICATION_STATUSES)
   status!: PublicationStatus;
@@ -97,7 +113,10 @@ export class TeacherSubjectAssignmentDto implements TeacherSubjectAssignment {
   @Max(2147483647)
   sortOrder!: number;
 }
-export class SetTeacherSubjectsDto implements SetTeacherSubjectsRequest {
+export class SetTeacherSubjectsDto
+  extends ExpectedVersionDto
+  implements SetTeacherSubjectsRequest
+{
   @ApiProperty({
     type: [TeacherSubjectAssignmentDto],
     maxItems: 50,

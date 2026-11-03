@@ -6,7 +6,13 @@ import {
   type SetPermissionsRequest,
 } from '@project/contracts';
 import { ArrayMaxSize, ArrayUnique, IsArray, IsIn } from 'class-validator';
-export class SetPermissionsDto implements SetPermissionsRequest {
+
+import { ExpectedVersionDto } from '../../common/dto/expected-version.dto';
+
+export class SetPermissionsDto
+  extends ExpectedVersionDto
+  implements SetPermissionsRequest
+{
   @ApiProperty({ enum: PERMISSIONS, isArray: true })
   @IsArray()
   @ArrayUnique()
@@ -15,6 +21,8 @@ export class SetPermissionsDto implements SetPermissionsRequest {
   permissions!: Permission[];
 }
 export class PermissionsResponseDto implements PermissionsResponse {
+  @ApiProperty({ minimum: 1 })
+  version!: number;
   @ApiProperty({ enum: PERMISSIONS, isArray: true })
   permissions!: Permission[];
 }

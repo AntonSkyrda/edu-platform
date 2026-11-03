@@ -5,6 +5,10 @@ import type { Transaction } from '@project/database';
 
 import { hashToken } from '../../common/helpers/hash-token.helper';
 import { EnvironmentService } from '../../config/environment.service';
+import type {
+  DeliveryClaim,
+  DeliveryKind,
+} from '../repositories/delivery-dispatch';
 import { PasswordResetsRepository } from '../repositories/password-resets.repository';
 
 @Injectable()
@@ -56,6 +60,18 @@ export class PasswordResetsService {
     error?: string,
   ) {
     return this.repository.recordNotification(id, status, error);
+  }
+
+  claimDelivery(leaseMs: number, kind?: DeliveryKind) {
+    return this.repository.claimDelivery(leaseMs, kind);
+  }
+  finishDispatch(
+    claim: DeliveryClaim,
+    sent: boolean,
+    retryMs: number,
+    kind?: DeliveryKind,
+  ) {
+    return this.repository.finishDispatch(claim, sent, retryMs, kind);
   }
 
   pendingDeliveries() {

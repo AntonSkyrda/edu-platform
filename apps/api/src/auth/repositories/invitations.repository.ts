@@ -4,6 +4,7 @@ import {
   BaseRepository,
   eq,
   gt,
+  inArray,
   isNull,
   sql,
   type Transaction,
@@ -12,6 +13,12 @@ import { userInvitations, users } from '@project/database/schema';
 import type { User, UserInvitation } from '@project/database/types';
 
 import { DatabaseService } from '../../database/database.service';
+import {
+  claimDelivery,
+  type DeliveryClaim,
+  type DeliveryKind,
+  finishDispatch,
+} from './delivery-dispatch';
 
 @Injectable()
 export class InvitationsRepository extends BaseRepository<
@@ -19,6 +26,40 @@ export class InvitationsRepository extends BaseRepository<
 > {
   constructor(database: DatabaseService) {
     super(database.db, userInvitations);
+  }
+
+  claimDelivery(leaseMs: number, kind: DeliveryKind = 'invitation') {
+    return claimDelivery(this.database, kind, leaseMs);
+  }
+  finishDispatch(
+    claim: DeliveryClaim,
+    sent: boolean,
+    retryMs: number,
+    kind: DeliveryKind = 'invitation',
+  ) {
+    return finishDispatch(this.database, kind, claim, sent, retryMs);
+  }
+
+  async latestDeliveries(userIds: string[], tx: Transaction) {
+    if (!userIds.length) return [];
+    return tx
+      .selectDistinctOn([userInvitations.userId], {
+        userId: userInvitations.userId,
+        status: userInvitations.deliveryStatus,
+        attempts: userInvitations.deliveryAttempts,
+        dispatchAttempts: userInvitations.dispatchAttempts,
+        enqueuedAt: userInvitations.lastEnqueuedAt,
+        deliveredAt: userInvitations.deliveredAt,
+        errorCode: userInvitations.deliveryError,
+        expiresAt: userInvitations.expiresAt,
+      })
+      .from(userInvitations)
+      .where(inArray(userInvitations.userId, userIds))
+      .orderBy(
+        userInvitations.userId,
+        sql`${userInvitations.createdAt} DESC`,
+        sql`${userInvitations.id} DESC`,
+      );
   }
 
   findPendingDeliveries() {

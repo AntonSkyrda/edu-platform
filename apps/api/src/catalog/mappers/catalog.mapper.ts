@@ -3,6 +3,7 @@ import type { Subject, Teacher } from '@project/database/types';
 export function toSubject(s: Subject): SubjectResponse {
   return {
     id: s.id,
+    version: s.version,
     name: s.name,
     slug: s.slug,
     sortOrder: s.sortOrder,
@@ -14,6 +15,7 @@ export function toSubject(s: Subject): SubjectResponse {
 export function toTeacher(t: Teacher): TeacherResponse {
   return {
     id: t.id,
+    version: t.version,
     firstName: t.firstName,
     lastName: t.lastName,
     slug: t.slug,

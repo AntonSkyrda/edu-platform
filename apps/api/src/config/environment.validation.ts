@@ -7,6 +7,7 @@ import {
   IsNotEmpty,
   IsString,
   IsUrl,
+  Matches,
   Max,
   Min,
   MinLength,
@@ -15,8 +16,44 @@ import {
 } from 'class-validator';
 
 import { NodeEnvironment } from './environment.types';
+import { parseTrustedProxies } from './proxy.config';
 
 class EnvironmentVariables {
+  @IsInt() @Min(1000) @Max(120000) SHUTDOWN_TIMEOUT_MS: number = 30000;
+  @IsInt() @Min(100) @Max(60000) POSTGRES_STATEMENT_TIMEOUT_MS: number = 5000;
+  @IsInt() @Min(100) @Max(30000) POSTGRES_LOCK_TIMEOUT_MS: number = 1000;
+  @IsInt() @Min(100) @Max(60000) POSTGRES_IDLE_TRANSACTION_TIMEOUT_MS: number =
+    10000;
+  @IsInt() @Min(1) @Max(8) MEDIA_MAX_CONCURRENT: number = 2;
+  @IsInt() @Min(0) @Max(32) MEDIA_MAX_WAITING: number = 4;
+  @IsInt() @Min(100) @Max(10000) MEDIA_WAIT_TIMEOUT_MS: number = 1000;
+  @IsInt() @Min(1000) @Max(600000) MAIL_DISPATCH_LEASE_MS: number = 60000;
+  @IsInt() @Min(10) @Max(86400) MAIL_BACKLOG_WARNING_SECONDS: number = 300;
+
+  @IsInt()
+  @Min(100)
+  @Max(5000)
+  REDIS_QUEUE_TIMEOUT_MS: number = 1000;
+
+  @Matches(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$/)
+  REDIS_QUEUE_PREFIX: string = 'bull';
+
+  @IsInt()
+  @Min(100)
+  @Max(5000)
+  HEALTH_CHECK_TIMEOUT_MS: number = 1000;
+
+  @IsString()
+  TRUSTED_PROXIES: string = '';
+
+  @Matches(/^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,99}$/)
+  RATE_LIMIT_REDIS_PREFIX: string = 'edu-platform:rate-limit';
+
+  @IsInt()
+  @Min(100)
+  @Max(5000)
+  RATE_LIMIT_REDIS_TIMEOUT_MS: number = 1000;
+
   @IsInt() @Min(1000) @Max(30000) MEDIA_PDF_TIMEOUT_MS: number = 5000;
   @IsIn(['local', 's3']) STORAGE_DRIVER: string = 'local';
   @IsString() STORAGE_LOCAL_ROOT: string = '';
@@ -170,6 +207,26 @@ class EnvironmentVariables {
   @Max(65535)
   REDIS_PORT!: number;
 
+  @IsInt()
+  @Min(100)
+  @Max(60000)
+  SMTP_DNS_TIMEOUT_MS: number = 5000;
+
+  @IsInt()
+  @Min(100)
+  @Max(60000)
+  SMTP_CONNECTION_TIMEOUT_MS: number = 5000;
+
+  @IsInt()
+  @Min(100)
+  @Max(60000)
+  SMTP_GREETING_TIMEOUT_MS: number = 5000;
+
+  @IsInt()
+  @Min(100)
+  @Max(60000)
+  SMTP_SOCKET_TIMEOUT_MS: number = 10000;
+
   @IsString()
   @IsNotEmpty()
   SMTP_HOST!: string;
@@ -218,5 +275,6 @@ export function validateEnvironment(
     throw new Error(errors.toString());
   }
 
+  parseTrustedProxies(environment.TRUSTED_PROXIES);
   return environment;
 }

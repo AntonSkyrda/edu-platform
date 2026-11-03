@@ -5,9 +5,44 @@ import { ConfigService } from '@nestjs/config';
 import { createDatabaseUrl } from '@project/database';
 
 import { NodeEnvironment } from './environment.types';
+import { parseTrustedProxies } from './proxy.config';
 
 @Injectable()
 export class EnvironmentService {
+  get shutdownTimeoutMs(): number {
+    return this.configService.getOrThrow<number>('SHUTDOWN_TIMEOUT_MS');
+  }
+  get postgresStatementTimeoutMs(): number {
+    return this.configService.getOrThrow<number>(
+      'POSTGRES_STATEMENT_TIMEOUT_MS',
+    );
+  }
+  get postgresLockTimeoutMs(): number {
+    return this.configService.getOrThrow<number>('POSTGRES_LOCK_TIMEOUT_MS');
+  }
+  get postgresIdleTransactionTimeoutMs(): number {
+    return this.configService.getOrThrow<number>(
+      'POSTGRES_IDLE_TRANSACTION_TIMEOUT_MS',
+    );
+  }
+  get mediaMaxConcurrent(): number {
+    return this.configService.getOrThrow<number>('MEDIA_MAX_CONCURRENT');
+  }
+  get mediaMaxWaiting(): number {
+    return this.configService.getOrThrow<number>('MEDIA_MAX_WAITING');
+  }
+  get mediaWaitTimeoutMs(): number {
+    return this.configService.getOrThrow<number>('MEDIA_WAIT_TIMEOUT_MS');
+  }
+  get mailDispatchLeaseMs(): number {
+    return this.configService.getOrThrow<number>('MAIL_DISPATCH_LEASE_MS');
+  }
+  get mailBacklogWarningSeconds(): number {
+    return this.configService.getOrThrow<number>(
+      'MAIL_BACKLOG_WARNING_SECONDS',
+    );
+  }
+
   constructor(private readonly configService: ConfigService) {}
 
   get storageDriver(): 'local' | 's3' {
@@ -181,12 +216,54 @@ export class EnvironmentService {
     return this.configService.getOrThrow<string>('POSTGRES_SCHEMA');
   }
 
+  get healthCheckTimeoutMs(): number {
+    return this.configService.getOrThrow<number>('HEALTH_CHECK_TIMEOUT_MS');
+  }
+
+  get trustedProxies(): string[] {
+    return parseTrustedProxies(
+      this.configService.getOrThrow<string>('TRUSTED_PROXIES'),
+    );
+  }
+
+  get rateLimitRedisPrefix(): string {
+    return this.configService.getOrThrow<string>('RATE_LIMIT_REDIS_PREFIX');
+  }
+
+  get rateLimitRedisTimeoutMs(): number {
+    return this.configService.getOrThrow<number>('RATE_LIMIT_REDIS_TIMEOUT_MS');
+  }
+
+  get redisQueueTimeoutMs(): number {
+    return this.configService.getOrThrow<number>('REDIS_QUEUE_TIMEOUT_MS');
+  }
+
+  get redisQueuePrefix(): string {
+    return this.configService.getOrThrow<string>('REDIS_QUEUE_PREFIX');
+  }
+
   get redisHost(): string {
     return this.configService.getOrThrow<string>('REDIS_HOST');
   }
 
   get redisPort(): number {
     return this.configService.getOrThrow<number>('REDIS_PORT');
+  }
+
+  get smtpDnsTimeoutMs(): number {
+    return this.configService.getOrThrow<number>('SMTP_DNS_TIMEOUT_MS');
+  }
+
+  get smtpConnectionTimeoutMs(): number {
+    return this.configService.getOrThrow<number>('SMTP_CONNECTION_TIMEOUT_MS');
+  }
+
+  get smtpGreetingTimeoutMs(): number {
+    return this.configService.getOrThrow<number>('SMTP_GREETING_TIMEOUT_MS');
+  }
+
+  get smtpSocketTimeoutMs(): number {
+    return this.configService.getOrThrow<number>('SMTP_SOCKET_TIMEOUT_MS');
   }
 
   get smtpHost(): string {

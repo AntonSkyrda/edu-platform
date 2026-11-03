@@ -5,8 +5,8 @@ const { createRequire } = require('node:module');
 const { resolve } = require('node:path');
 const { Readable } = require('node:stream');
 const { test } = require('node:test');
+const { setTimeout: delay } = require('node:timers/promises');
 
-const { ThrottlerGuard } = require('@nestjs/throttler');
 const { PDFDocument } = require('pdf-lib');
 const sharp = require('sharp');
 const databaseRequire = createRequire(
@@ -29,6 +29,9 @@ const { users, userPermissions } = require('@project/database/schema');
 const request = require('supertest');
 
 const { CatalogModule } = require('../dist/catalog/catalog.module');
+const {
+  SubjectsRepository,
+} = require('../dist/catalog/repositories/subjects.repository');
 const {
   AllExceptionFilter,
 } = require('../dist/common/filters/all-exception.filter');
@@ -62,6 +65,7 @@ test('catalog API against isolated PostgreSQL schema', async (t) => {
   );
   const schema = `catalog_test_${randomUUID().replaceAll('-', '')}`;
   const { db, pool } = createDatabase({
+    application_name: schema,
     connectionString: createDatabaseUrl({
       host: env.POSTGRES_HOST,
       port: Number(env.POSTGRES_PORT),
@@ -135,8 +139,6 @@ test('catalog API against isolated PostgreSQL schema', async (t) => {
       .useValue({})
       .overrideProvider(StorageService)
       .useValue(storage)
-      .overrideGuard(ThrottlerGuard)
-      .useValue({ canActivate: () => true })
       .overrideProvider(DatabaseService)
       .useValue({ db })
       .compile();
@@ -173,10 +175,22 @@ test('catalog API against isolated PostgreSQL schema', async (t) => {
     await app.init();
     await app.listen(0, '127.0.0.1');
     const http = request(app.getHttpServer());
-    const editor = (method, path) =>
-      http[method](path)
+    const versions = new Map();
+    const editor = (method, path) => {
+      const id = path.match(/^\/admin\/(?:subjects|teachers)\/([^/]+)/)?.[1];
+      const req = http[method](path)
         .set('Cookie', 'access_token=MANAGER')
-        .set('Origin', 'http://localhost:3001');
+        .set('Origin', 'http://localhost:3001')
+        .on('response', (response) => {
+          const detail = response.body?.detail;
+          if (detail?.version) versions.set(detail.id ?? id, detail.version);
+          for (const row of detail?.items ?? [])
+            if (row.id && row.version) versions.set(row.id, row.version);
+        });
+      if (id && ['patch', 'put', 'delete'].includes(method))
+        req.send({ expectedVersion: versions.get(id) ?? 1 });
+      return req;
+    };
     await t.test(
       'manager grants are required per action and revocation applies on next request',
       async () => {
@@ -229,9 +243,637 @@ test('catalog API against isolated PostgreSQL schema', async (t) => {
       .png()
       .toBuffer();
     const photo = await mediaService.upload(image, 'IMAGE');
+    const explicit = (method, path) =>
+      http[method](path)
+        .set('Cookie', 'access_token=MANAGER')
+        .set('Origin', 'http://localhost:3001');
+    await t.test(
+      'record versions reject stale writes and require explicit valid versions',
+      async () => {
+        const created = (
+          await editor('post', '/admin/subjects')
+            .send({ name: 'Version audit' })
+            .expect(201)
+        ).body.detail;
+        assert.equal(created.version, 1);
+        const path = `/admin/subjects/${created.id}`;
+        for (const expectedVersion of [undefined, null, 0, -1, 1.5, '1']) {
+          await explicit('patch', path)
+            .send({ name: 'Invalid', expectedVersion })
+            .expect(400);
+        }
+        await explicit('patch', path).send({ expectedVersion: 1 }).expect(400);
+        await explicit('patch', `${path}/status`)
+          .send({ status: 'PUBLISHED' })
+          .expect(400);
+        const results = await Promise.all([
+          explicit('patch', path).send({
+            name: 'Editor A',
+            expectedVersion: 1,
+          }),
+          explicit('patch', path).send({ sortOrder: 7, expectedVersion: 1 }),
+        ]);
+        assert.deepEqual(results.map((r) => r.status).sort(), [200, 409]);
+        assert.equal(
+          results.find((r) => r.status === 409).body.code,
+          'VERSION_CONFLICT',
+        );
+        const actual = (await editor('get', path).expect(200)).body.detail;
+        assert.equal(actual.version, 2);
+        await explicit('patch', `${path}/status`)
+          .send({ status: 'PUBLISHED', expectedVersion: 1 })
+          .expect(409);
+        assert.deepEqual(
+          (await editor('get', path).expect(200)).body.detail,
+          actual,
+        );
+        const published = (
+          await explicit('patch', `${path}/status`)
+            .send({ status: 'PUBLISHED', expectedVersion: 2 })
+            .expect(200)
+        ).body.detail;
+        assert.equal(published.version, 3);
+        await explicit('delete', path)
+          .send({ expectedVersion: published.version })
+          .expect(200);
+      },
+    );
+    await t.test(
+      'teacher conflicts preserve newer content and do not change uploaded photo expiry',
+      async () => {
+        const created = (
+          await editor('post', '/admin/teachers')
+            .send({
+              firstName: 'Audit',
+              lastName: 'Teacher',
+              shortDescription: 'Original',
+            })
+            .expect(201)
+        ).body.detail;
+        const path = `/admin/teachers/${created.id}`;
+        const upload = await mediaService.upload(image, 'IMAGE');
+        const expiry = (
+          await pool.query('SELECT expires_at FROM media WHERE id = $1', [
+            upload.id,
+          ])
+        ).rows[0].expires_at;
+        const results = await Promise.all([
+          explicit('patch', path).send({
+            shortDescription: 'Editor A',
+            expectedVersion: 1,
+          }),
+          explicit('patch', path).send({
+            shortDescription: 'Editor B',
+            expectedVersion: 1,
+          }),
+        ]);
+        assert.deepEqual(results.map((r) => r.status).sort(), [200, 409]);
+        const winner = results.find((r) => r.status === 200).body.detail;
+        const stale = await explicit('patch', path)
+          .send({
+            shortDescription: 'Original',
+            photoId: upload.id,
+            expectedVersion: 1,
+          })
+          .expect(409);
+        assert.equal(stale.body.code, 'VERSION_CONFLICT');
+        assert.deepEqual(
+          (await editor('get', path).expect(200)).body.detail,
+          winner,
+        );
+        assert.equal(
+          (
+            await pool.query('SELECT expires_at FROM media WHERE id = $1', [
+              upload.id,
+            ])
+          ).rows[0].expires_at.getTime(),
+          expiry.getTime(),
+        );
+        const saved = (
+          await explicit('patch', path)
+            .send({
+              biography: 'Reviewed changes',
+              expectedVersion: winner.version,
+            })
+            .expect(200)
+        ).body.detail;
+        assert.equal(saved.version, 3);
+        await explicit('delete', path)
+          .send({ expectedVersion: saved.version })
+          .expect(200);
+        await mediaService.remove(upload.id);
+      },
+    );
+    await t.test(
+      'deletion requires a valid version and stale deletes preserve records, assignments and media',
+      async () => {
+        const subject = (
+          await editor('post', '/admin/subjects')
+            .send({ name: 'Protected delete' })
+            .expect(201)
+        ).body.detail;
+        const upload = await mediaService.upload(image, 'IMAGE');
+        const teacher = (
+          await editor('post', '/admin/teachers')
+            .send({
+              firstName: 'Protected',
+              lastName: 'Delete',
+              photoId: upload.id,
+            })
+            .expect(201)
+        ).body.detail;
+        const subjectPath = `/admin/subjects/${subject.id}`;
+        const teacherPath = `/admin/teachers/${teacher.id}`;
+        for (const path of [subjectPath, teacherPath]) {
+          for (const expectedVersion of [
+            undefined,
+            null,
+            0,
+            -1,
+            1.5,
+            '1',
+            2147483648,
+          ])
+            await explicit('delete', path)
+              .send({ expectedVersion })
+              .expect(400);
+        }
+        await editor('put', `${teacherPath}/subjects`)
+          .send({ subjects: [{ subjectId: subject.id, sortOrder: 0 }] })
+          .expect(200);
+        await editor('patch', subjectPath)
+          .send({ name: 'Newer subject' })
+          .expect(200);
+        const expiryBefore = (
+          await pool.query('SELECT expires_at FROM media WHERE id = $1', [
+            upload.id,
+          ])
+        ).rows[0].expires_at;
+        for (const path of [subjectPath, teacherPath]) {
+          const conflict = await explicit('delete', path)
+            .send({ expectedVersion: 1 })
+            .expect(409);
+          assert.equal(conflict.body.code, 'VERSION_CONFLICT');
+          await editor('get', path).expect(200);
+        }
+        assert.deepEqual(
+          (await editor('get', `${teacherPath}/subjects`)).body.detail.items,
+          [{ subjectId: subject.id, sortOrder: 0 }],
+        );
+        assert.equal(
+          (
+            await pool.query('SELECT expires_at FROM media WHERE id = $1', [
+              upload.id,
+            ])
+          ).rows[0].expires_at,
+          expiryBefore,
+        );
+        await editor('delete', teacherPath).expect(200);
+        await editor('delete', subjectPath).expect(200);
+        await mediaService.remove(upload.id);
+      },
+    );
+    await t.test(
+      'parallel edits and deletes have exactly one winner; duplicate deletes never both succeed',
+      async () => {
+        for (const resource of ['subjects', 'teachers']) {
+          const create = async () =>
+            (
+              await editor('post', `/admin/${resource}`)
+                .send(
+                  resource === 'subjects'
+                    ? { name: 'Concurrent deletion' }
+                    : { firstName: 'Concurrent', lastName: 'Deletion' },
+                )
+                .expect(201)
+            ).body.detail;
+          const row = await create();
+          const path = `/admin/${resource}/${row.id}`;
+          const [updated, removed] = await Promise.all([
+            explicit('patch', path).send({
+              expectedVersion: row.version,
+              ...(resource === 'subjects'
+                ? { name: 'Winner' }
+                : { biography: 'Winner' }),
+            }),
+            explicit('delete', path).send({ expectedVersion: row.version }),
+          ]);
+          assert.equal(
+            [updated, removed].filter((r) => r.status === 200).length,
+            1,
+          );
+          if (updated.status === 200) {
+            assert.equal(removed.status, 409);
+            assert.equal(removed.body.code, 'VERSION_CONFLICT');
+            assert.deepEqual(
+              (await editor('get', path)).body.detail,
+              updated.body.detail,
+            );
+            await editor('delete', path).expect(200);
+          } else {
+            assert.equal(updated.status, 404);
+            await editor('get', path).expect(404);
+          }
+          const duplicate = await create();
+          const duplicatePath = `/admin/${resource}/${duplicate.id}`;
+          const results = await Promise.all(
+            [1, 2].map(() =>
+              explicit('delete', duplicatePath).send({
+                expectedVersion: duplicate.version,
+              }),
+            ),
+          );
+          assert.deepEqual(results.map((r) => r.status).sort(), [200, 404]);
+        }
+      },
+    );
+    await t.test(
+      'parallel teacher assignment replacement and deletion cannot both succeed',
+      async () => {
+        const subject = (
+          await editor('post', '/admin/subjects')
+            .send({ name: 'Delete versus assignments' })
+            .expect(201)
+        ).body.detail;
+        const teacher = (
+          await editor('post', '/admin/teachers')
+            .send({ firstName: 'Assignments', lastName: 'Race' })
+            .expect(201)
+        ).body.detail;
+        const path = `/admin/teachers/${teacher.id}`;
+        const [assigned, removed] = await Promise.all([
+          explicit('put', `${path}/subjects`).send({
+            expectedVersion: 1,
+            subjects: [{ subjectId: subject.id, sortOrder: 0 }],
+          }),
+          explicit('delete', path).send({ expectedVersion: 1 }),
+        ]);
+        assert.equal(
+          [assigned, removed].filter((r) => r.status === 200).length,
+          1,
+        );
+        if (assigned.status === 200) {
+          assert.equal(removed.status, 409);
+          assert.deepEqual(
+            (await editor('get', `${path}/subjects`)).body.detail,
+            assigned.body.detail,
+          );
+          await editor('delete', path).expect(200);
+        } else assert.equal(assigned.status, 404);
+        await editor('delete', `/admin/subjects/${subject.id}`).expect(200);
+      },
+    );
+    await t.test(
+      'assignment replacements share the teacher version and reject stale lists atomically',
+      async () => {
+        const subject = (
+          await editor('post', '/admin/subjects')
+            .send({ name: 'Versioned assignment' })
+            .expect(201)
+        ).body.detail;
+        const teacher = (
+          await editor('post', '/admin/teachers')
+            .send({ firstName: 'Assignment', lastName: 'Audit' })
+            .expect(201)
+        ).body.detail;
+        const path = `/admin/teachers/${teacher.id}`;
+        const initial = (await editor('get', `${path}/subjects`).expect(200))
+          .body.detail;
+        assert.deepEqual(initial, { items: [], version: 1 });
+        await explicit('put', `${path}/subjects`)
+          .send({ subjects: [] })
+          .expect(400);
+        const results = await Promise.all([
+          explicit('put', `${path}/subjects`).send({
+            subjects: [{ subjectId: subject.id, sortOrder: 1 }],
+            expectedVersion: 1,
+          }),
+          explicit('put', `${path}/subjects`).send({
+            subjects: [{ subjectId: subject.id, sortOrder: 2 }],
+            expectedVersion: 1,
+          }),
+        ]);
+        assert.deepEqual(results.map((r) => r.status).sort(), [200, 409]);
+        const winner = results.find((r) => r.status === 200).body.detail;
+        assert.equal(winner.version, 2);
+        await explicit('put', `${path}/subjects`)
+          .send({ subjects: [], expectedVersion: 1 })
+          .expect(409);
+        assert.deepEqual(
+          (await editor('get', `${path}/subjects`).expect(200)).body.detail,
+          winner,
+        );
+        await explicit('patch', path)
+          .send({ firstName: 'Stale', expectedVersion: 1 })
+          .expect(409);
+        assert.equal(
+          (await editor('get', path).expect(200)).body.detail.version,
+          2,
+        );
+        await editor('delete', path).expect(200);
+        await editor('delete', `/admin/subjects/${subject.id}`).expect(200);
+      },
+    );
     let subject;
     let teacher;
     let second;
+    const createSubject = async () =>
+      (
+        await editor('post', '/admin/subjects')
+          .send({ name: 'Cascade test' })
+          .expect(201)
+      ).body.detail;
+    const createTeacher = async () =>
+      (
+        await editor('post', '/admin/teachers')
+          .send({ firstName: 'Cascade', lastName: 'Test' })
+          .expect(201)
+      ).body.detail;
+    const assignments = (teacher) => `/admin/teachers/${teacher.id}/subjects`;
+    const subjectPath = (subject) => `/admin/subjects/${subject.id}`;
+    const teacherPath = (teacher) => `/admin/teachers/${teacher.id}`;
+    const assign = async (teacher, subjects) =>
+      (
+        await editor('put', assignments(teacher))
+          .send({
+            subjects: subjects.map((subject, sortOrder) => ({
+              subjectId: subject.id,
+              sortOrder,
+            })),
+          })
+          .expect(200)
+      ).body.detail;
+    const readAssignments = async (teacher) =>
+      (await editor('get', assignments(teacher)).expect(200)).body.detail;
+    const removeTeacher = async (teacher) => {
+      await editor('get', teacherPath(teacher)).expect(200);
+      await editor('delete', teacherPath(teacher)).expect(200);
+    };
+    // Force overlap at real PostgreSQL locks, rather than relying on request timing.
+    // Only connections belonging to this isolated test schema are observed.
+    async function withTeacherLock(teacher, run) {
+      const owner = await pool.connect();
+      const pending = [];
+      let released = false;
+      const release = async () => {
+        if (!released) {
+          released = true;
+          await owner.query('ROLLBACK');
+        }
+      };
+      try {
+        await owner.query('BEGIN');
+        await owner.query('SELECT id FROM teachers WHERE id=$1 FOR UPDATE', [
+          teacher.id,
+        ]);
+        await run({
+          start(req) {
+            const operation = req.timeout({ deadline: 6000 }).then(
+              (response) => response,
+              (error) => ({ status: 0, error }),
+            );
+            pending.push(operation);
+            return operation;
+          },
+          async waitForWaiters(count) {
+            const end = Date.now() + 3000;
+            while (Date.now() < end) {
+              const result = await pool.query(
+                "SELECT count(*)::int AS count FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock'",
+                [schema],
+              );
+              if (result.rows[0].count >= count) return;
+              await delay(10);
+            }
+            assert.fail(
+              `Expected ${count} concurrent requests waiting on database locks`,
+            );
+          },
+          release,
+        });
+      } finally {
+        await release();
+        await Promise.all(pending);
+        owner.release();
+      }
+    }
+    await t.test(
+      'subject deletion atomically bumps only affected teachers and stale writes return version conflicts',
+      async () => {
+        const a = await createSubject();
+        const b = await createSubject();
+        const x = await createTeacher();
+        const y = await createTeacher();
+        const untouched = await createTeacher();
+        const initial = await assign(x, [a, b]);
+        await assign(y, [a]);
+        await assign(untouched, [b]);
+        const snapshot = (await editor('get', teacherPath(x)).expect(200)).body
+          .detail;
+        await explicit('delete', subjectPath(a))
+          .send({ expectedVersion: 999 })
+          .expect(409);
+        assert.deepEqual(await readAssignments(x), initial);
+        const repository = app.get(SubjectsRepository);
+        const originalDelete = repository.delete.bind(repository);
+        const fail = t.mock.method(repository, 'delete', async (...args) => {
+          await originalDelete(...args);
+          throw new Error('Test failure after the cascade');
+        });
+        try {
+          await editor('delete', subjectPath(a)).expect(500);
+        } finally {
+          fail.mock.restore();
+        }
+        await editor('get', subjectPath(a)).expect(200);
+        assert.deepEqual(await readAssignments(x), initial);
+        assert.equal((await readAssignments(y)).version, 2);
+        assert.deepEqual(
+          (await editor('get', teacherPath(x))).body.detail,
+          snapshot,
+        );
+        await editor('delete', subjectPath(a)).expect(200);
+        const current = await readAssignments(x);
+        assert.deepEqual(current, {
+          version: 3,
+          items: [{ subjectId: b.id, sortOrder: 1 }],
+        });
+        assert.deepEqual(await readAssignments(y), { version: 3, items: [] });
+        assert.equal((await readAssignments(untouched)).version, 2);
+        for (const [method, path, body] of [
+          ['patch', teacherPath(x), { biography: 'Stale draft' }],
+          ['patch', `${teacherPath(x)}/status`, { status: 'DRAFT' }],
+          ['put', assignments(x), { subjects: initial.items }],
+          ['delete', teacherPath(x), {}],
+        ]) {
+          const response = await explicit(method, path)
+            .send({ ...body, expectedVersion: initial.version })
+            .expect(409);
+          assert.equal(response.body.code, 'VERSION_CONFLICT');
+        }
+        assert.deepEqual(await readAssignments(x), current);
+        for (const teacher of [x, y, untouched]) await removeTeacher(teacher);
+        await editor('delete', subjectPath(b)).expect(200);
+      },
+    );
+    await t.test(
+      'subject deletion wins over parallel teacher edits, deletes, assignment writes and snapshot reads',
+      async () => {
+        for (const operation of ['patch', 'delete', 'assign', 'read']) {
+          const a = await createSubject();
+          const b = await createSubject();
+          const teacher = await createTeacher();
+          const initial = await assign(teacher, [a, b]);
+          await withTeacherLock(
+            teacher,
+            async ({ start, waitForWaiters, release }) => {
+              const deletion = start(editor('delete', subjectPath(a)));
+              await waitForWaiters(1);
+              const request =
+                operation === 'assign'
+                  ? explicit('put', assignments(teacher)).send({
+                      subjects: initial.items,
+                      expectedVersion: initial.version,
+                    })
+                  : operation === 'read'
+                    ? editor('get', assignments(teacher))
+                    : explicit(operation, teacherPath(teacher)).send({
+                        expectedVersion: initial.version,
+                        ...(operation === 'patch'
+                          ? { biography: 'Parallel edit' }
+                          : {}),
+                      });
+              const competing = start(request);
+              await waitForWaiters(2);
+              await release();
+              assert.equal((await deletion).status, 200);
+              const response = await competing;
+              if (operation === 'read')
+                assert.deepEqual(response.body.detail, {
+                  version: 3,
+                  items: [{ subjectId: b.id, sortOrder: 1 }],
+                });
+              else {
+                assert.equal(response.status, 409, operation);
+                assert.equal(response.body.code, 'VERSION_CONFLICT');
+              }
+            },
+          );
+          await removeTeacher(teacher);
+          await editor('delete', subjectPath(b)).expect(200);
+        }
+      },
+    );
+    await t.test(
+      'parallel teacher edits survive the cascade and deleting the teacher first leaves no extra work',
+      async () => {
+        for (const operation of ['patch', 'delete']) {
+          const a = await createSubject();
+          const teacher = await createTeacher();
+          const initial = await assign(teacher, [a]);
+          await withTeacherLock(
+            teacher,
+            async ({ start, waitForWaiters, release }) => {
+              const competing = start(
+                explicit(operation, teacherPath(teacher)).send({
+                  expectedVersion: initial.version,
+                  ...(operation === 'patch'
+                    ? { biography: 'Winning edit' }
+                    : {}),
+                }),
+              );
+              await waitForWaiters(1);
+              const deletion = start(editor('delete', subjectPath(a)));
+              await waitForWaiters(2);
+              await release();
+              assert.equal((await competing).status, 200);
+              assert.equal((await deletion).status, 200);
+            },
+          );
+          if (operation === 'patch') {
+            const actual = (
+              await editor('get', teacherPath(teacher)).expect(200)
+            ).body.detail;
+            assert.equal(actual.biography, 'Winning edit');
+            assert.equal(actual.version, 4);
+            assert.deepEqual((await readAssignments(teacher)).items, []);
+            await removeTeacher(teacher);
+          } else await editor('get', teacherPath(teacher)).expect(404);
+        }
+      },
+    );
+    await t.test(
+      'parallel assignment removal is not counted twice; newly added links cannot escape the cascade',
+      async () => {
+        for (const operation of ['remove', 'add', 'retain']) {
+          const a = await createSubject();
+          const b = await createSubject();
+          const teacher = await createTeacher();
+          const initial = await assign(
+            teacher,
+            operation === 'add' ? [b] : [a, b],
+          );
+          const desired = operation === 'remove' ? [b] : [a, b];
+          await withTeacherLock(
+            teacher,
+            async ({ start, waitForWaiters, release }) => {
+              const replacement = start(
+                explicit('put', assignments(teacher)).send({
+                  expectedVersion: initial.version,
+                  subjects: desired.map((subject, sortOrder) => ({
+                    subjectId: subject.id,
+                    sortOrder,
+                  })),
+                }),
+              );
+              await waitForWaiters(1);
+              const deletion = start(editor('delete', subjectPath(a)));
+              await waitForWaiters(2);
+              await release();
+              assert.equal((await replacement).status, 200, operation);
+              assert.equal((await deletion).status, 200, operation);
+            },
+          );
+          assert.deepEqual(await readAssignments(teacher), {
+            version: operation === 'remove' ? 3 : 4,
+            items: [
+              { subjectId: b.id, sortOrder: operation === 'remove' ? 0 : 1 },
+            ],
+          });
+          await removeTeacher(teacher);
+          await editor('delete', subjectPath(b)).expect(200);
+        }
+      },
+    );
+    await t.test(
+      'parallel deletion of overlapping subjects increments each surviving teacher once per cascade',
+      async () => {
+        const a = await createSubject();
+        const b = await createSubject();
+        const teachers = [await createTeacher(), await createTeacher()];
+        for (const teacher of teachers) await assign(teacher, [b, a]);
+        await withTeacherLock(
+          teachers[0],
+          async ({ start, waitForWaiters, release }) => {
+            const first = start(editor('delete', subjectPath(a)));
+            const second = start(editor('delete', subjectPath(b)));
+            await waitForWaiters(2);
+            await release();
+            assert.deepEqual(
+              (await Promise.all([first, second])).map((r) => r.status),
+              [200, 200],
+            );
+          },
+        );
+        for (const teacher of teachers) {
+          assert.deepEqual(await readAssignments(teacher), {
+            version: 4,
+            items: [],
+          });
+          await removeTeacher(teacher);
+        }
+      },
+    );
     await t.test(
       'public catalog allows guests, administration requires editor role',
       async () => {
@@ -695,7 +1337,7 @@ test('catalog API against isolated PostgreSQL schema', async (t) => {
           1,
         );
         assert.equal(
-          results.filter((response) => response.status === 400).length,
+          results.filter((response) => response.status === 409).length,
           1,
         );
         const actual = (
@@ -730,6 +1372,11 @@ test('catalog API against isolated PostgreSQL schema', async (t) => {
         new DocumentBuilder().build(),
       );
       assert(doc.paths['/admin/subjects'].post.requestBody);
+      for (const resource of ['subjects', 'teachers']) {
+        const endpoint = doc.paths[`/admin/${resource}/{id}`].delete;
+        assert(endpoint.requestBody);
+        assert(endpoint.responses['409']);
+      }
       assert(doc.paths['/admin/teachers/{id}/subjects'].put.requestBody);
       assert(doc.paths['/admin/teachers'].get.security);
       assert.equal(doc.paths['/catalog/subjects'].get.security, undefined);

@@ -42,7 +42,18 @@ async function mockApi(
       detail = { expiresIn: 900, user: { ...admin, role } };
     } else if (path === '/auth/logout') {
       signedIn = false;
-    } else if (path === '/auth/users')
+    } else if (path === '/admin/delivery')
+      detail = {
+        status: 'ok',
+        metrics: [],
+        workers: {
+          online: 1,
+          activeJobs: 0,
+          lastCompletedAt: null,
+          lastFailedAt: null,
+        },
+      };
+    else if (path === '/auth/users')
       detail = {
         items: [
           admin,
@@ -277,12 +288,16 @@ test('admin can invite, resend, block and unblock with explicit confirmation', a
     .click();
   await expect(
     page.getByText(
-      'Запрошення створено, лист поставлено в чергу. Це ще не підтвердження доставки.',
+      'Запрошення збережено. Стан доставки листа відображається в списку учасників.',
     ),
   ).toBeVisible();
   page.on('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Повторити лист' }).click();
-  await expect(page.getByText('Новий лист поставлено в чергу.')).toBeVisible();
+  await expect(
+    page.getByText(
+      'Нове запрошення збережено. Стан доставки оновиться автоматично.',
+    ),
+  ).toBeVisible();
   await page.getByRole('button', { name: 'Заблокувати', exact: true }).click();
   await expect(
     page.getByText('Користувача заблоковано.', { exact: true }),

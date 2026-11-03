@@ -2,6 +2,8 @@ import type { TeacherSubjectAssignment } from '@project/contracts';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
+import { ApiError } from '@/shared/api/api-error';
+import { Button } from '@/shared/ui/button';
 import { ErrorNotice } from '@/shared/ui/feedback';
 import { Pagination } from '@/shared/ui/pagination';
 
@@ -78,6 +80,26 @@ export function SubjectPicker({
           </div>
         );
       })}
+      {subjects.data &&
+        value
+          .filter(
+            (item) =>
+              !subjects.data.items.some(
+                (subject) => subject.id === item.subjectId,
+              ),
+          )
+          .map((item) => (
+            <SelectedSubjectOutsidePage
+              key={item.subjectId}
+              item={item}
+              disabled={disabled}
+              onRemove={() =>
+                onChange(
+                  value.filter((other) => other.subjectId !== item.subjectId),
+                )
+              }
+            />
+          ))}
       {subjects.data?.items.length === 0 && <p>Спочатку створіть напрям.</p>}
       <Pagination
         page={page}
@@ -85,6 +107,45 @@ export function SubjectPicker({
         busy={subjects.isFetching}
         onChange={setPage}
       />
+    </div>
+  );
+}
+
+// Selected items remain visible even after deletion or a change of list page.
+// Only a confirmed 404 is a deletion; temporary failures never erase the draft.
+function SelectedSubjectOutsidePage({
+  item,
+  disabled,
+  onRemove,
+}: {
+  item: TeacherSubjectAssignment;
+  disabled: boolean;
+  onRemove: () => void;
+}) {
+  const subject = useQuery({
+    queryKey: ['subjects', 'detail', item.subjectId],
+    queryFn: ({ signal }) => subjectsApi.get(item.subjectId, signal),
+    retry: false,
+  });
+  const deleted =
+    subject.error instanceof ApiError && subject.error.status === 404;
+  return (
+    <div className="space-y-2 rounded-lg border border-amber-300 p-3 text-sm">
+      <p>
+        {deleted
+          ? 'Цей напрям видалено. Приберіть його з вибраних або прийміть актуальний список.'
+          : (subject.data?.name ??
+            (subject.isPending
+              ? 'Завантаження вибраного напряму…'
+              : 'Вибраний напрям тимчасово недоступний'))}
+      </p>
+      <p>Збережений у чернетці порядок: {item.sortOrder}</p>
+      <ErrorNotice error={deleted ? undefined : subject.error} />
+      {!disabled && (
+        <Button type="button" variant="outline" onClick={onRemove}>
+          {deleted ? 'Прибрати видалений напрям' : 'Прибрати вибраний напрям'}
+        </Button>
+      )}
     </div>
   );
 }
