@@ -4,7 +4,7 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
-import type { Request } from 'express';
+import type { NodeRequest as Request } from '@nestjs/platform-node';
 
 import { EnvironmentService } from '../../config/environment.service';
 
@@ -14,7 +14,7 @@ export class CsrfGuard implements CanActivate {
 
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<Request>();
-    if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) return true;
+    if (['GET', 'HEAD', 'OPTIONS'].includes(request.method ?? '')) return true;
     if (
       request.headers.origin &&
       !this.environment.trustedRequestOrigins.includes(request.headers.origin)

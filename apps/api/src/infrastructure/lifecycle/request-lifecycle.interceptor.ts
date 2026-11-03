@@ -4,7 +4,7 @@ import {
   Injectable,
   type NestInterceptor,
 } from '@nestjs/common';
-import type { Response } from 'express';
+import type { NodeResponse as Response } from '@nestjs/platform-node';
 import { finalize } from 'rxjs';
 
 @Injectable()

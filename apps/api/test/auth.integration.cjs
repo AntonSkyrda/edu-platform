@@ -7,6 +7,7 @@ const { test } = require('node:test');
 
 const { PERMISSIONS } = require('@project/contracts');
 
+const { createHttpAdapter } = require('../dist/config/http-adapter');
 const {
   PermissionsRepository,
 } = require('../dist/permissions/permissions.repository');
@@ -1276,7 +1277,7 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
           .overrideProvider(EnvironmentService)
           .useValue(environment)
           .compile();
-        app = module.createNestApplication();
+        app = module.createNestApplication(createHttpAdapter(['127.0.0.1/32']));
         app.useGlobalPipes(
           new ValidationPipe({
             whitelist: true,
@@ -1291,7 +1292,6 @@ test('invitation and session flow against isolated PostgreSQL schema', async (t)
         const http = request(app.getHttpServer());
         // Origin rejection now consumes a rate-limit hit too. Give those
         // requests their own simulated client, keeping the recovery budget exact.
-        app.set('trust proxy', ['127.0.0.1/32']);
         for (const route of ['/auth/forgot-password', '/auth/reset-password']) {
           await http
             .post(route)

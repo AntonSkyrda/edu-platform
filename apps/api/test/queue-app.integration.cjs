@@ -7,6 +7,8 @@ const { join, resolve } = require('node:path');
 const { test } = require('node:test');
 const { setTimeout: delay } = require('node:timers/promises');
 
+const { createHttpAdapter } = require('../dist/config/http-adapter');
+
 require('reflect-metadata');
 const databaseRequire = createRequire(
   resolve('../../packages/database/package.json'),
@@ -202,7 +204,7 @@ test(
         connection: { host: '127.0.0.1', port: relay.port },
       })
       .compile();
-    app = module.createNestApplication({ logger: false });
+    app = module.createNestApplication(createHttpAdapter(environment.trustedProxies), { logger: false });
     configureHttpApp(app);
     await app.listen(0, '127.0.0.1');
     const queueErrors = [];

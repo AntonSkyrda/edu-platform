@@ -1,4 +1,4 @@
-import type { Request } from 'express';
+import type { NodeRequest as Request } from '@nestjs/platform-node';
 
 import type { AuthContext } from '../../auth/interfaces/auth-context.interface';
 

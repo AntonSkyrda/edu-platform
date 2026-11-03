@@ -1,9 +1,11 @@
 const assert = require('node:assert/strict');
 const { request: httpRequest } = require('node:http');
 const { test } = require('node:test');
+
+const { createHttpAdapter } = require('../dist/config/http-adapter');
 require('reflect-metadata');
 const { BadRequestException } = require('@nestjs/common');
-const { MulterModule } = require('@nestjs/platform-express');
+const { MulterModule } = require('@nestjs/platform-node');
 const { Test } = require('@nestjs/testing');
 const request = require('supertest');
 
@@ -62,7 +64,7 @@ test(
       .overrideGuard(PermissionsGuard)
       .useValue({ canActivate: () => true })
       .compile();
-    const app = module.createNestApplication({ logger: false });
+    const app = module.createNestApplication(createHttpAdapter(), { logger: false });
     app.useGlobalFilters(new AllExceptionFilter());
     await app.listen(0, '127.0.0.1');
     const admission = app.get(MediaAdmissionService);

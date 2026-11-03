@@ -3,8 +3,8 @@ import {
   Catch,
   type ExceptionFilter,
 } from '@nestjs/common';
+import type { NodeResponse as Response } from '@nestjs/platform-node';
 import type { ApiResponse } from '@project/contracts';
-import type { Response } from 'express';
 
 import type { ReadinessResponseDto } from './dto/health-response.dto';
 import { HealthUnavailableException } from './health-unavailable.exception';

@@ -12,6 +12,10 @@ import {
   Req,
   Res,
 } from '@nestjs/common';
+import type {
+  NodeRequest as Request,
+  NodeResponse as Response,
+} from '@nestjs/platform-node';
 import {
   ApiCookieAuth,
   ApiOperation,
@@ -20,7 +24,6 @@ import {
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { parseCookie } from 'cookie';
-import type { Request, Response } from 'express';
 
 import {
   ApiEnvelope,

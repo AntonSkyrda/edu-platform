@@ -9,6 +9,8 @@ const { setTimeout: delay } = require('node:timers/promises');
 
 const { PDFDocument } = require('pdf-lib');
 const sharp = require('sharp');
+
+const { createHttpAdapter } = require('../dist/config/http-adapter');
 const databaseRequire = createRequire(
   resolve('../../packages/database/package.json'),
 );
@@ -142,7 +144,7 @@ test('catalog API against isolated PostgreSQL schema', async (t) => {
       .overrideProvider(DatabaseService)
       .useValue({ db })
       .compile();
-    app = module.createNestApplication();
+    app = module.createNestApplication(createHttpAdapter());
     app.useGlobalPipes(
       new ValidationPipe({
         transform: true,
@@ -191,6 +193,29 @@ test('catalog API against isolated PostgreSQL schema', async (t) => {
         req.send({ expectedVersion: versions.get(id) ?? 1 });
       return req;
     };
+    await t.test('native HTTP serves maximum-length subject and teacher slugs', async () => {
+      assert.equal(app.getHttpAdapter().getType(), 'node');
+      const subject = (await editor('post', '/admin/subjects')
+        .send({ name: 'Щ'.repeat(100) }).expect(201)).body.detail;
+      assert.equal(subject.slug.length, 150);
+      await editor('patch', `/admin/subjects/${subject.id}/status`)
+        .send({ status: 'PUBLISHED' }).expect(200);
+      const publicSubject = await http
+        .get(`/catalog/subjects/${subject.slug}`).expect(200);
+      assert.equal(publicSubject.body.detail.id, subject.id);
+      await http.get(`/catalog/subjects/${subject.slug}/teachers`).expect(200);
+      const teacher = (await editor('post', '/admin/teachers')
+        .send({ firstName: 'Щ'.repeat(100), lastName: 'Я'.repeat(100) })
+        .expect(201)).body.detail;
+      assert.equal(teacher.slug.length, 200);
+      // Keep the test focused on routing; publication constraints are tested below.
+      await pool.query("UPDATE teachers SET status = 'PUBLISHED' WHERE id = $1", [teacher.id]);
+      const publicTeacher = await http
+        .get(`/catalog/teachers/${teacher.slug}`).expect(200);
+      assert.equal(publicTeacher.body.detail.id, teacher.id);
+      await editor('delete', `/admin/teachers/${teacher.id}`).expect(200);
+      await editor('delete', `/admin/subjects/${subject.id}`).expect(200);
+    });
     await t.test(
       'manager grants are required per action and revocation applies on next request',
       async () => {
